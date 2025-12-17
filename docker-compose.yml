@@ -1,0 +1,88 @@
+services:
+  # PostgreSQL 数据库服务
+  postgres:
+    image: postgres:15-alpine
+    container_name: game-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: game_chat
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d # 初始化脚本目录
+    networks:
+      - game-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d game_chat" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: game-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ""
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - game-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Redis Commander - Redis 可视化管理工具 (可选)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: game-redis-commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:game-redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - game-network
+    depends_on:
+      - redis
+
+  # pgAdmin - PostgreSQL 可视化管理工具 (可选)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: game-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - game-network
+    depends_on:
+      - postgres
+
+# 数据持久化卷
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+# 网络配置
+networks:
+  game-network:
+    driver: bridge

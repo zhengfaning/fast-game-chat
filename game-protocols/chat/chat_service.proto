@@ -1,0 +1,37 @@
+syntax = "proto3";
+package chat;
+
+option go_package = "game-protocols/chat";
+
+service ChatService {
+    // 网关 -> GCS: 验证认证 Token
+    rpc ValidateAuthToken(AuthTokenRequest) returns (UserIdentity);
+    
+    // GLS -> GCS: 系统广播
+    rpc SendSystemBroadcast(SystemBroadcastRequest) returns (Empty);
+    
+    // GLS -> GCS: 踢出用户
+    rpc KickUser(KickUserRequest) returns (Empty);
+}
+
+message AuthTokenRequest {
+    string token = 1;
+}
+
+message UserIdentity {
+    int32 user_id = 1;
+    string game_id = 2;
+    bool valid = 3;
+}
+
+message SystemBroadcastRequest {
+    string content = 1;
+    repeated int32 target_users = 2;
+}
+
+message KickUserRequest {
+    int32 user_id = 1;
+    string reason = 2;
+}
+
+message Empty {}

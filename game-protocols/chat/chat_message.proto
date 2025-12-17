@@ -1,0 +1,51 @@
+syntax = "proto3";
+package chat;
+
+import "common/message_base.proto";
+
+option go_package = "game-protocols/chat";
+
+message ChatRequest {
+    // 1. 包含 Base 字段
+    common.MessageBase base = 1;
+    
+    // 2. 业务特定字段
+    int32 receiver_id = 2;        // 私聊接收者（0 表示频道消息）
+    int32 channel_id = 3;         // 频道 ID（0 表示私聊）
+    
+    enum MessageType {
+        TEXT = 0;           // 纯文本
+        EMOJI = 1;          // 表情
+        ITEM = 2;           // 道具
+        COORDINATE = 3;     // 坐标
+    }
+    MessageType type = 4;
+    string content = 5;
+    bytes extra_data = 6;         // 附加数据（如道具信息）
+}
+
+message ChatResponse {
+    common.MessageBase base = 1;
+    
+    bool success = 2;
+    string error_message = 3;
+    int64 message_id = 4;         // 消息在 DB 中的唯一 ID
+    int64 timestamp = 5;
+    
+    // 路由信息 (用于 Gateway 转发)
+    int32 target_user_id = 10;    // 目标用户 ID (优先使用)
+    string target_session_id = 11; // 或目标 Session ID
+}
+
+message MessageBroadcast {
+    int64 message_id = 1;
+    int32 sender_id = 2;
+    string sender_name = 3;
+    int32 channel_id = 4;
+    string content = 5;
+    int64 timestamp = 6;
+    ChatRequest.MessageType type = 7;
+    
+    // 路由信息 (用于 Gateway 转发)
+    int32 target_user_id = 10;    // 目标用户 ID
+}

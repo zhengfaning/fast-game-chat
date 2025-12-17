@@ -1,0 +1,22 @@
+syntax = "proto3";
+package common;
+
+option go_package = "game-protocols/common";
+
+// 所有业务消息的基类
+message MessageBase {
+    // 游戏标识（用于多游戏隔离）
+    string game_id = 1;          // 例如: "game_mmo", "game_card", "game_moba"
+    
+    // 用户标识
+    int32 user_id = 2;           // 发送者用户 ID
+    
+    // 消息元数据
+    int64 timestamp = 3;         // 客户端时间戳
+    string client_version = 4;   // 客户端版本（用于兼容性检查）
+    string device_id = 5;        // 设备 ID（可选，用于多端登录检测）
+    
+    // 追踪与调试
+    string trace_id = 6;         // 分布式追踪 ID
+    string session_id = 7;       // 会话 ID
+}

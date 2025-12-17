@@ -3,6 +3,7 @@ package protocol
 import (
 	"fmt"
 	"sync/atomic"
+    "time"
 	
 	"github.com/gorilla/websocket"
 )
@@ -74,4 +75,9 @@ func (c *WSConn) Close() error {
 // SetReadLimit 设置读取限制
 func (c *WSConn) SetReadLimit(limit int64) {
 	c.conn.SetReadLimit(limit)
+}
+
+// SetReadDeadline 设置读取超时
+func (c *WSConn) SetReadDeadline(t time.Time) error {
+    return c.conn.SetReadDeadline(t)
 }

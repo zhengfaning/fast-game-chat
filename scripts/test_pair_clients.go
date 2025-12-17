@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-    "game-protocols/gateway"
+    "game-gateway/pkg/protocol"
     "game-protocols/common"
     "game-protocols/chat"
 	"github.com/gorilla/websocket"
@@ -15,197 +15,176 @@ import (
 var successB = false
 var successA = false
 
-func connect(userID int32) (*websocket.Conn, error) {
+func connect(name string, userID int32) (*protocol.WSConn, error) {
     u := url.URL{Scheme: "ws", Host: "localhost:8080", Path: "/ws"}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-    return c, err
-}
-
-func readLoopB(name string, c *websocket.Conn, done chan bool) {
-    defer func() {
-        if r := recover(); r != nil {
-            log.Printf("[%s] Recovered from panic: %v", name, r)
-        }
-        done <- true
-    }()
-    
-    timeout := time.After(6 * time.Second)
-    
-    for {
-        select {
-        case <-timeout:
-            log.Printf("[%s] Timeout reached", name)
-            return
-        default:
-            c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-            _, message, err := c.ReadMessage()
-            if err != nil {
-                continue 
-            }
-            
-            var envelope gateway.Envelope
-            if err := proto.Unmarshal(message, &envelope); err != nil {
-                log.Printf("[%s] Unmarshal envelope failed: %v", name, err)
-                continue
-            }
-            
-            if envelope.Route == gateway.Envelope_CHAT {
-                // Try unmarshal as ChatResponse (ACK) first
-                var resp chat.ChatResponse
-                if err := proto.Unmarshal(envelope.Payload, &resp); err == nil && resp.Success {
-                    log.Printf("[%s] ✅ ACK: MsgID=%d (ignoring, waiting for broadcast...)", name, resp.MessageId)
-                    continue
-                }
-                
-                // Try unmarshal as MessageBroadcast
-                var broadcast chat.MessageBroadcast
-                if err := proto.Unmarshal(envelope.Payload, &broadcast); err == nil {
-                    log.Printf("[%s] 📨 BROADCAST from User %d: \"%s\"", name, broadcast.SenderId, broadcast.Content)
-                    // Check if this is the message we're expecting from User 1001
-                    if broadcast.SenderId == 1001 && len(broadcast.Content) > 0 && broadcast.Content == "Hello B, I am A!" {
-                        successB = true
-                        log.Printf("[%s] ✅ SUCCESS! Received expected message from User %d", name, broadcast.SenderId)
-                        return
-                    }
-                    continue
-                }
-                
-                log.Printf("[%s] Unknown payload type, len=%d", name, len(envelope.Payload))
-            }
-        }
-    }
-}
-
-func readLoopA(name string, c *websocket.Conn, done chan bool) {
-    defer func() {
-        if r := recover(); r != nil {
-            log.Printf("[%s] Recovered from panic: %v", name, r)
-        }
-        done <- true
-    }()
-    
-    timeout := time.After(6 * time.Second)
-    
-    for {
-        select {
-        case <-timeout:
-            log.Printf("[%s] Timeout reached", name)
-            return
-        default:
-            c.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-            _, message, err := c.ReadMessage()
-            if err != nil {
-                continue
-            }
-            
-            var envelope gateway.Envelope
-            if err := proto.Unmarshal(message, &envelope); err != nil {
-                log.Printf("[%s] Unmarshal envelope failed: %v", name, err)
-                continue
-            }
-            
-            if envelope.Route == gateway.Envelope_CHAT {
-                // Try unmarshal as ChatResponse (ACK)
-                var resp chat.ChatResponse
-                if err := proto.Unmarshal(envelope.Payload, &resp); err == nil && resp.Success {
-                    log.Printf("[%s] ✅ ACK: MsgID=%d", name, resp.MessageId)
-                    successA = true
-                    log.Printf("[%s] ✅ SUCCESS! Message sent successfully", name)
-                    return
-                }
-                
-                // MessageBroadcast shouldn't come to A
-                var broadcast chat.MessageBroadcast
-                if err := proto.Unmarshal(envelope.Payload, &broadcast); err == nil {
-                    log.Printf("[%s] 📨 BROADCAST from User %d: \"%s\" (unexpected)", name, broadcast.SenderId, broadcast.Content)
-                }
-            }
-        }
-    }
-}
-
-func main() {
-    doneB := make(chan bool, 1)
-    doneA := make(chan bool, 1)
-    
-    log.Println("=== Starting Broadcast Test ===")
-    
-    // 1. Connect Client B (Receiver - 1002)
-    clientB, err := connect(1002)
     if err != nil {
-        log.Fatal("Client B connect:", err)
+        return nil, err
     }
-    defer clientB.Close()
-    
-    // Bind User B - send dummy message to self
-    bindReqB := &chat.ChatRequest{
+    log.Printf("[%s] Connected to %s", name, u.String())
+    return protocol.NewWSConn(c), nil
+}
+
+// 模拟 Client B (接收者)
+func runClientB(done chan bool) {
+    name := "Client B"
+    conn, err := connect(name, 1002)
+    if err != nil {
+        log.Fatalf("[%s] Connect failed: %v", name, err)
+    }
+    defer conn.Close()
+
+    // 1. Bind User (发送第一条消息以建立 Session-User 映射)
+    log.Printf("[%s] Sending Bind Request...", name)
+    bindReq := &chat.ChatRequest{
         Base: &common.MessageBase{GameId: "mmo", UserId: 1002, Timestamp: time.Now().Unix()},
         ReceiverId: 1002, Content: "Init B", Type: chat.ChatRequest_TEXT,
     }
-    bindPayloadB, _ := proto.Marshal(bindReqB)
-    bindEnvB := &gateway.Envelope{Route: gateway.Envelope_CHAT, GameId: "mmo", UserId: 1002, Payload: bindPayloadB}
-    dataB, _ := proto.Marshal(bindEnvB)
-    clientB.WriteMessage(websocket.BinaryMessage, dataB)
-    
-    log.Println("👤 Client B (User 1002) connected and bound")
-
-    // Start Reader for B - don't exit on ACK, wait for broadcast from User 1001
-    go readLoopB("Client B", clientB, doneB)
-    
-    // Wait for B to bind
-    time.Sleep(500 * time.Millisecond)
-
-    // 2. Connect Client A (Sender - 1001)
-    clientA, err := connect(1001)
-    if err != nil {
-        log.Fatal("Client A connect:", err)
+    bindPayload, _ := proto.Marshal(bindReq)
+    if _, err := conn.SendRequest(protocol.RouteChat, bindPayload); err != nil {
+        log.Fatalf("[%s] Send bind failed: %v", name, err)
     }
-    defer clientA.Close()
-    log.Println("👤 Client A (User 1001) connected")
-    
-    // Start Reader for A
-    go readLoopA("Client A", clientA, doneA)
 
-    // 3. User A sends message to User B
-    time.Sleep(300 * time.Millisecond)
-    log.Println("📤 Client A sending message to Client B...")
+    // 2. 读取循环
+    log.Printf("[%s] Waiting for messages...", name)
+    timeout := time.After(10 * time.Second)
     
+    // 用于检测连接是否健康的 channel
+    readChan := make(chan *protocol.Packet)
+    errChan := make(chan error)
+
+    go func() {
+        for {
+            // 设置每次读取的 deadline，防止永久阻塞
+            conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+            pkt, err := conn.ReadPacket()
+            if err != nil {
+                errChan <- err
+                return
+            }
+            readChan <- pkt
+        }
+    }()
+
+    for {
+        select {
+        case <-timeout:
+            log.Printf("[%s] ❌ Test Timeout!", name)
+            done <- false
+            return
+            
+        case err := <-errChan:
+            log.Printf("[%s] Read Error: %v", name, err)
+            done <- false
+            return
+
+        case pkt := <-readChan:
+            if pkt.Route != protocol.RouteChat {
+                continue
+            }
+
+            // 尝试解析为 Broadcast (这是我们期待的)
+            var broadcast chat.MessageBroadcast
+            // Heuristic: Broadcast content should not be empty, and SenderId should be valid
+            if err := proto.Unmarshal(pkt.Payload, &broadcast); err == nil && len(pkt.Payload) > 20 {
+                if broadcast.Content != "" && broadcast.SenderId > 0 {
+                    log.Printf("[%s] 📨 Received Broadcast from %d: %s", name, broadcast.SenderId, broadcast.Content)
+                    
+                    if broadcast.SenderId == 1001 && broadcast.Content == "Hello B, I am A!" {
+                        successB = true
+                        log.Printf("[%s] ✅ Verified Correct Message!", name)
+                        done <- true
+                        return
+                    }
+                    // 可能是自己的 "Init B" 回显，忽略
+                    continue
+                }
+            }
+            
+            // 尝试解析为 ACK
+            var resp chat.ChatResponse
+            if err := proto.Unmarshal(pkt.Payload, &resp); err == nil {
+                log.Printf("[%s] Received ACK: Success=%v MsgID=%d", name, resp.Success, resp.MessageId)
+            }
+        }
+    }
+}
+
+// 模拟 Client A (发送者)
+func runClientA(done chan bool) {
+    name := "Client A"
+    // 等待 Client B 先准备好
+    time.Sleep(1 * time.Second)
+    
+    conn, err := connect(name, 1001)
+    if err != nil {
+        log.Fatalf("[%s] Connect failed: %v", name, err)
+    }
+    defer conn.Close()
+
+    // 1. 发送消息给 B
+    log.Printf("[%s] Sending Message to Client B...", name)
     msgReq := &chat.ChatRequest{
         Base: &common.MessageBase{GameId: "mmo", UserId: 1001, Timestamp: time.Now().Unix()},
-        ReceiverId: 1002, // Target B
+        ReceiverId: 1002, // Target User 1002 (Client B)
         Content: "Hello B, I am A!",
         Type: chat.ChatRequest_TEXT,
     }
     payload, _ := proto.Marshal(msgReq)
-    env := &gateway.Envelope{Route: gateway.Envelope_CHAT, GameId: "mmo", UserId: 1001, Payload: payload}
-    data, _ := proto.Marshal(env)
-    
-    if err := clientA.WriteMessage(websocket.BinaryMessage, data); err != nil {
-        log.Fatal("Client A write:", err)
+    if _, err := conn.SendRequest(protocol.RouteChat, payload); err != nil {
+        log.Fatalf("[%s] Send message failed: %v", name, err)
     }
+
+    // 2. 等待 ACK
+    conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+    pkt, err := conn.ReadPacket()
+    if err != nil {
+        log.Printf("[%s] Failed to receive ACK: %v", name, err)
+        done <- false
+        return
+    }
+
+    var resp chat.ChatResponse
+    if err := proto.Unmarshal(pkt.Payload, &resp); err == nil && resp.Success {
+        log.Printf("[%s] ✅ Received ACK: MsgID=%d", name, resp.MessageId)
+        successA = true
+        done <- true
+    } else {
+        log.Printf("[%s] ❌ Received invalid response", name)
+        done <- false
+    }
+}
+
+func main() {
+    log.Println("=== Starting Realistic Pair Test ===")
     
-    log.Println("⏳ Waiting for responses...")
-    
-    // Wait for both clients to finish or timeout
-    <-doneA
-    <-doneB
-    
+    doneB := make(chan bool)
+    doneA := make(chan bool)
+
+    go runClientB(doneB)
+    go runClientA(doneA)
+
+    // Wait for results
+    resultB := <-doneB
+    resultA := <-doneA
+
     log.Println("\n=== Test Results ===")
-    if successA {
-        log.Println("✅ Client A: Message sent and acknowledged")
+    if resultA {
+        log.Println("✅ Client A: Send & ACK OK")
     } else {
-        log.Println("❌ Client A: Did not receive ACK")
+        log.Println("❌ Client A: Failed")
     }
     
-    if successB {
-        log.Println("✅ Client B: Received message from Client A")
+    if resultB {
+        log.Println("✅ Client B: Receive OK")
     } else {
-        log.Println("❌ Client B: Did not receive message from Client A")
+        log.Println("❌ Client B: Failed")
     }
-    
-    if successA && successB {
-        log.Println("\n🎉 BROADCAST TEST PASSED!")
+
+    if resultA && resultB {
+        log.Println("\n🎉 REALISTIC SCENARIO TEST PASSED!")
     } else {
-        log.Println("\n❌ BROADCAST TEST FAILED")
+        log.Println("\n❌ TEST FAILED - Check logs above")
+        panic("Test Failed")
     }
 }

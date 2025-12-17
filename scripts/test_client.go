@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-    "game-protocols/gateway"
+    "game-gateway/pkg/protocol"
     "game-protocols/common"
     "game-protocols/chat"
 	"github.com/gorilla/websocket"
@@ -22,31 +22,31 @@ func main() {
 	}
 	defer c.Close()
 
+    wsConn := protocol.NewWSConn(c)
+
     // Start Response Reader
     go func() {
         for {
-            _, message, err := c.ReadMessage()
+            pkt, err := wsConn.ReadPacket()
             if err != nil {
-                log.Println("read:", err)
+                log.Println("read error:", err)
                 return
             }
-            log.Printf("Received: %d bytes", len(message))
+            log.Printf("Received Packet: Route=%d, Seq=%d, PayloadLen=%d", pkt.Route, pkt.Sequence, len(pkt.Payload))
             
-            // Unmarshal Envelope
-            var envelope gateway.Envelope
-            if err := proto.Unmarshal(message, &envelope); err != nil {
-                log.Printf("Unmarshal envelope failed: %v", err)
-                continue
-            }
-            log.Printf("Envelope: Route=%v, Sequence=%d, PayloadLen=%d", envelope.Route, envelope.Sequence, len(envelope.Payload))
-            
-            // Unmarshal Payload (Expect ChatResponse)
-            if envelope.Route == gateway.Envelope_CHAT {
-                 // Wait, response type?
-                 // GCS sends `ChatResponse` in payload? Or generic `ChatResponse`?
-                 // Our test_client integration plan implies bidirectional.
-                 // GCS sends `ChatResponse`.
-                 // Let's unzip it.
+            // Try identify content
+            if pkt.Route == protocol.RouteChat {
+                 if len(pkt.Payload) > 25 {
+                     var bc chat.MessageBroadcast
+                     if err := proto.Unmarshal(pkt.Payload, &bc); err == nil {
+                         log.Printf(" >> Broadcast from %d: %s", bc.SenderId, bc.Content)
+                     }
+                 } else {
+                     var resp chat.ChatResponse
+                     if err := proto.Unmarshal(pkt.Payload, &resp); err == nil {
+                         log.Printf(" >> ACK: Success=%v", resp.Success)
+                     }
+                 }
             }
         }
     }()
@@ -58,27 +58,17 @@ func main() {
             UserId: 1001,
             Timestamp: time.Now().Unix(),
             TraceId: "test-trace-1",
-            SessionId: "will-be-overwritten", // Gateway doesn't use this for routing TO client, but FROM client? 
-            // Gateway assigns SessionID on connection.
+            SessionId: "will-be-overwritten", 
         },
         ReceiverId: 1002,
-        Content: "Hello World via Gateway!",
+        Content: "Hello World via Gateway (Binary)!",
         Type: chat.ChatRequest_TEXT,
     }
     payload, _ := proto.Marshal(chatReq)
 
-    // 2. Construct Envelope
-    envelope := &gateway.Envelope{
-        Route: gateway.Envelope_CHAT,
-        GameId: "mmo",
-        Sequence: 1,
-        Payload: payload,
-    }
-    data, _ := proto.Marshal(envelope)
-
-    // 3. Send
+    // 2. Send using new protocol
     log.Printf("Sending message...")
-	err = c.WriteMessage(websocket.BinaryMessage, data)
+	_, err = wsConn.SendRequest(protocol.RouteChat, payload)
 	if err != nil {
 		log.Fatal("write:", err)
 	}

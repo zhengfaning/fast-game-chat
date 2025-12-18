@@ -6,7 +6,7 @@ import "common/message_base.proto";
 option go_package = "game-protocols/chat";
 
 message ChatRequest {
-    // 1. 包含 Base 字段
+    // 1. 核心字段（必须）
     common.MessageBase base = 1;
     
     // 2. 业务特定字段
@@ -22,6 +22,10 @@ message ChatRequest {
     MessageType type = 4;
     string content = 5;
     bytes extra_data = 6;         // 附加数据（如道具信息）
+    
+    // 3. 可选扩展元数据（按需使用，大部分情况下为空）
+    // 用途：需要追踪、版本控制时才填充
+    common.MessageMeta meta = 10;
 }
 
 message ChatResponse {

@@ -21,20 +21,17 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// 所有业务消息的基类
+// ============================================================
+// 核心消息基类 - 只包含所有消息必须的字段
+// ============================================================
 type MessageBase struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 游戏标识（用于多游戏隔离）
-	GameId string `protobuf:"bytes,1,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"` // 例如: "game_mmo", "game_card", "game_moba"
+	GameId string `protobuf:"bytes,1,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"` // 例如: "mmo", "card", "moba"
 	// 用户标识
 	UserId int32 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // 发送者用户 ID
-	// 消息元数据
-	Timestamp     int64  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                             // 客户端时间戳
-	ClientVersion string `protobuf:"bytes,4,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"` // 客户端版本（用于兼容性检查）
-	DeviceId      string `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`                // 设备 ID（可选，用于多端登录检测）
-	// 追踪与调试
-	TraceId       string `protobuf:"bytes,6,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`       // 分布式追踪 ID
-	SessionId     string `protobuf:"bytes,7,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // 会话 ID
+	// 消息时序
+	Timestamp     int64 `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // 客户端时间戳（毫秒）
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -90,48 +87,129 @@ func (x *MessageBase) GetTimestamp() int64 {
 	return 0
 }
 
-func (x *MessageBase) GetClientVersion() string {
+// ============================================================
+// 可选扩展元数据 - 按需使用，不强制要求
+// 用途：追踪、调试、版本控制等高级功能
+// ============================================================
+type MessageMeta struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 版本与兼容性
+	ClientVersion   string `protobuf:"bytes,1,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`       // 客户端版本，如 "1.2.3"
+	ProtocolVersion string `protobuf:"bytes,2,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"` // 协议版本，用于灰度发布
+	// 设备与会话
+	DeviceId  string `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`    // 设备 ID（用于多端登录检测）
+	SessionId string `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"` // 会话 ID（可选，用于特殊场景）
+	// 分布式追踪
+	TraceId string `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"` // 分布式追踪 ID（OpenTelemetry）
+	SpanId  string `protobuf:"bytes,6,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`    // Span ID
+	// 扩展字段
+	Extra         map[string]string `protobuf:"bytes,10,rep,name=extra,proto3" json:"extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // 自定义扩展字段
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MessageMeta) Reset() {
+	*x = MessageMeta{}
+	mi := &file_common_message_base_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MessageMeta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MessageMeta) ProtoMessage() {}
+
+func (x *MessageMeta) ProtoReflect() protoreflect.Message {
+	mi := &file_common_message_base_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MessageMeta.ProtoReflect.Descriptor instead.
+func (*MessageMeta) Descriptor() ([]byte, []int) {
+	return file_common_message_base_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *MessageMeta) GetClientVersion() string {
 	if x != nil {
 		return x.ClientVersion
 	}
 	return ""
 }
 
-func (x *MessageBase) GetDeviceId() string {
+func (x *MessageMeta) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *MessageMeta) GetDeviceId() string {
 	if x != nil {
 		return x.DeviceId
 	}
 	return ""
 }
 
-func (x *MessageBase) GetTraceId() string {
-	if x != nil {
-		return x.TraceId
-	}
-	return ""
-}
-
-func (x *MessageBase) GetSessionId() string {
+func (x *MessageMeta) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
 	}
 	return ""
 }
 
+func (x *MessageMeta) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *MessageMeta) GetSpanId() string {
+	if x != nil {
+		return x.SpanId
+	}
+	return ""
+}
+
+func (x *MessageMeta) GetExtra() map[string]string {
+	if x != nil {
+		return x.Extra
+	}
+	return nil
+}
+
 var File_common_message_base_proto protoreflect.FileDescriptor
 
 const file_common_message_base_proto_rawDesc = "" +
 	"\n" +
-	"\x19common/message_base.proto\x12\x06common\"\xdb\x01\n" +
+	"\x19common/message_base.proto\x12\x06common\"]\n" +
 	"\vMessageBase\x12\x17\n" +
 	"\agame_id\x18\x01 \x01(\tR\x06gameId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x05R\x06userId\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\x12%\n" +
-	"\x0eclient_version\x18\x04 \x01(\tR\rclientVersion\x12\x1b\n" +
-	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\x12\x19\n" +
-	"\btrace_id\x18\x06 \x01(\tR\atraceId\x12\x1d\n" +
+	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"\xbf\x02\n" +
+	"\vMessageMeta\x12%\n" +
+	"\x0eclient_version\x18\x01 \x01(\tR\rclientVersion\x12)\n" +
+	"\x10protocol_version\x18\x02 \x01(\tR\x0fprotocolVersion\x12\x1b\n" +
+	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\a \x01(\tR\tsessionIdB\x17Z\x15game-protocols/commonb\x06proto3"
+	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x19\n" +
+	"\btrace_id\x18\x05 \x01(\tR\atraceId\x12\x17\n" +
+	"\aspan_id\x18\x06 \x01(\tR\x06spanId\x124\n" +
+	"\x05extra\x18\n" +
+	" \x03(\v2\x1e.common.MessageMeta.ExtraEntryR\x05extra\x1a8\n" +
+	"\n" +
+	"ExtraEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x17Z\x15game-protocols/commonb\x06proto3"
 
 var (
 	file_common_message_base_proto_rawDescOnce sync.Once
@@ -145,16 +223,19 @@ func file_common_message_base_proto_rawDescGZIP() []byte {
 	return file_common_message_base_proto_rawDescData
 }
 
-var file_common_message_base_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_common_message_base_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_common_message_base_proto_goTypes = []any{
 	(*MessageBase)(nil), // 0: common.MessageBase
+	(*MessageMeta)(nil), // 1: common.MessageMeta
+	nil,                 // 2: common.MessageMeta.ExtraEntry
 }
 var file_common_message_base_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: common.MessageMeta.extra:type_name -> common.MessageMeta.ExtraEntry
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_common_message_base_proto_init() }
@@ -168,7 +249,7 @@ func file_common_message_base_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_message_base_proto_rawDesc), len(file_common_message_base_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

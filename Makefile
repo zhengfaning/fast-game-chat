@@ -1,161 +1,122 @@
-.PHONY: help up down restart logs clean backup restore test-db test-redis
+# 项目配置
+DOCKER_DIR := docker
+DIST_DIR := dist
+DIST_BIN := $(DIST_DIR)/bin
+DIST_CONFIG := $(DIST_DIR)/configs
+DOCKER_COMPOSE := docker-compose -f $(DOCKER_DIR)/docker-compose.yml
+
+# 服务名称
+CHAT_SERVICE := game-chat-service
+GATEWAY_SERVICE := game-gateway
+
+# 编译产物
+CHAT_BIN := bin/$(CHAT_SERVICE)
+GATEWAY_BIN := bin/$(GATEWAY_SERVICE)
+
+# 源文件 (用于依赖检查)
+CHAT_SRC := $(shell find $(CHAT_SERVICE) -name "*.go" 2>/dev/null)
+GATEWAY_SRC := $(shell find $(GATEWAY_SERVICE) -name "*.go" 2>/dev/null)
+# 依赖生成的 Go 文件
+GENERATED_GO := $(shell find game-protocols -name "*.pb.go" 2>/dev/null)
+
+.PHONY: all help build release docker-up docker-down docker-restart docker-logs docker-ps docker-clean \
+        run stop restart-app clean-dist psql redis-cli test-db test-redis stats
+
+all: help
 
 help: ## 显示帮助信息
-	@echo "游戏开发项目 - Docker 管理命令"
+	@echo "游戏开发项目 - 管理命令"
 	@echo ""
 	@echo "使用方法: make [命令]"
 	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo "Docker 命令:"
+	@grep -E '^[a-zA-Z_-]+:.*?## Docker: .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## Docker: "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "构建与运行命令:"
+	@grep -E '^[a-zA-Z_-]+:.*?## App: .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## App: "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-up: ## 启动所有服务
-	docker-compose up -d
-	@echo "✅ 所有服务已启动"
-	@echo "📊 PostgreSQL: localhost:5432"
-	@echo "📊 Redis: localhost:6379"
-	@echo "🌐 pgAdmin: http://localhost:5050"
-	@echo "🌐 Redis Commander: http://localhost:8081"
+# --- 构建命令 ---
 
-up-core: ## 仅启动核心服务 (PostgreSQL + Redis)
-	docker-compose up -d postgres redis
-	@echo "✅ 核心服务已启动"
+$(CHAT_BIN): $(CHAT_SRC) $(GENERATED_GO)
+	@echo "🚀 编译 $(CHAT_SERVICE)..."
+	@mkdir -p bin
+	cd ./$(CHAT_SERVICE) && go build -o ../$(CHAT_BIN) ./cmd/chat/main.go
 
-down: ## 停止所有服务
-	docker-compose down
+$(GATEWAY_BIN): $(GATEWAY_SRC) $(GENERATED_GO)
+	@echo "🚀 编译 $(GATEWAY_SERVICE)..."
+	@mkdir -p bin
+	cd ./$(GATEWAY_SERVICE) && go build -o ../$(GATEWAY_BIN) ./cmd/gateway/main.go
+
+build: $(CHAT_BIN) $(GATEWAY_BIN) ## App: 编译所有服务
+
+release: build ## App: 编译并部署到 dist 目录
+	@echo "📦 准备发布版本..."
+	@mkdir -p $(DIST_BIN) $(DIST_CONFIG)
+	@cp $(CHAT_BIN) $(DIST_BIN)/
+	@cp $(GATEWAY_BIN) $(DIST_BIN)/
+	@cp chat.yaml $(DIST_CONFIG)/
+	@cp gateway.yaml $(DIST_CONFIG)/
+	@echo "✅ 发布版本已就绪: $(DIST_DIR)"
+
+# --- 运行命令 ---
+
+run: release ## App: 启动服务 (后台运行)
+	@echo "🟢 正在启动服务..."
+	@mkdir -p logs
+	@cd $(DIST_BIN) && ./$(GATEWAY_SERVICE) > ../../gateway.log 2>&1 & echo $$! > ../../gateway.pid
+	@cd $(DIST_BIN) && ./$(CHAT_SERVICE) -config ../configs/chat.yaml > ../../chat.log 2>&1 & echo $$! > ../../chat.pid
+	@echo "✅ 服务已在后台启动"
+
+stop: ## App: 停止服务
+	@echo "🔴 正在停止服务..."
+	@if [ -f gateway.pid ]; then kill $$(cat gateway.pid) && rm gateway.pid && echo "Stop Gateway ok"; fi
+	@if [ -f chat.pid ]; then kill $$(cat chat.pid) && rm chat.pid && echo "Stop Chat ok"; fi
 	@echo "✅ 所有服务已停止"
 
-restart: ## 重启所有服务
-	docker-compose restart
-	@echo "✅ 所有服务已重启"
+restart-app: stop run ## App: 重启应用服务
 
-logs: ## 查看所有服务日志
-	docker-compose logs -f
+# --- Docker 命令 (已调整路径) ---
 
-logs-postgres: ## 查看 PostgreSQL 日志
-	docker-compose logs -f postgres
+docker-up: ## Docker: 启动所有基础服务
+	$(DOCKER_COMPOSE) up -d
+	@echo "✅ Docker 基础服务已启动"
 
-logs-redis: ## 查看 Redis 日志
-	docker-compose logs -f redis
+docker-down: ## Docker: 停止所有 Docker 服务
+	$(DOCKER_COMPOSE) down
+	@echo "✅ Docker 服务已停止"
 
-ps: ## 查看服务状态
-	docker-compose ps
+docker-restart: ## Docker: 重启 Docker 服务
+	$(DOCKER_COMPOSE) restart
 
-clean: ## 停止服务并清理数据卷 (谨慎使用！)
+docker-logs: ## Docker: 查看日志
+	$(DOCKER_COMPOSE) logs -f
+
+docker-ps: ## Docker: 查看容器状态
+	$(DOCKER_COMPOSE) ps
+
+docker-clean: ## Docker: 清理容器和数据
 	@echo "⚠️  警告: 这将删除所有数据！"
 	@read -p "确认删除所有数据？(yes/no): " confirm && [ "$$confirm" = "yes" ] || exit 1
-	docker-compose down -v
-	@echo "✅ 服务已停止，数据已清理"
+	$(DOCKER_COMPOSE) down -v
 
-backup-db: ## 备份 PostgreSQL 数据库
-	@mkdir -p backups
-	docker exec game-postgres pg_dump -U user game_chat > backups/game_chat_$(shell date +%Y%m%d_%H%M%S).sql
-	@echo "✅ 数据库已备份到 backups/ 目录"
+# --- 工具命令 ---
 
-backup-redis: ## 备份 Redis 数据
-	@mkdir -p backups
-	docker exec game-redis redis-cli BGSAVE
-	@sleep 2
-	docker cp game-redis:/data/dump.rdb backups/redis_$(shell date +%Y%m%d_%H%M%S).rdb
-	@echo "✅ Redis 已备份到 backups/ 目录"
-
-restore-db: ## 恢复数据库 (使用方法: make restore-db FILE=backup.sql)
-	@if [ -z "$(FILE)" ]; then \
-		echo "❌ 错误: 请指定备份文件，例如: make restore-db FILE=backups/game_chat_20231217.sql"; \
-		exit 1; \
-	fi
-	docker exec -i game-postgres psql -U user game_chat < $(FILE)
-	@echo "✅ 数据库已恢复"
-
-psql: ## 连接到 PostgreSQL
+psql: ## Docker: 连接到 PostgreSQL
 	docker exec -it game-postgres psql -U user -d game_chat
 
-redis-cli: ## 连接到 Redis
+redis-cli: ## Docker: 连接到 Redis
 	docker exec -it game-redis redis-cli
 
-test-db: ## 测试数据库连接
-	@docker exec game-postgres pg_isready -U user -d game_chat && \
-		echo "✅ PostgreSQL 连接正常" || \
-		echo "❌ PostgreSQL 连接失败"
+test-db: ## Docker: 测试数据库连接
+	@docker exec game-postgres pg_isready -U user -d game_chat && echo "✅ PostgreSQL OK" || echo "❌ PostgreSQL Fail"
 
-test-redis: ## 测试 Redis 连接
-	@docker exec game-redis redis-cli ping > /dev/null 2>&1 && \
-		echo "✅ Redis 连接正常" || \
-		echo "❌ Redis 连接失败"
+test-redis: ## Docker: 测试 Redis 连接
+	@docker exec game-redis redis-cli ping > /dev/null 2>&1 && echo "✅ Redis OK" || echo "❌ Redis Fail"
 
-test: test-db test-redis ## 测试所有服务连接
+stats: ## Docker: 显示资源使用
+	docker stats --no-stream game-postgres game-redis
 
-stats: ## 显示资源使用统计
-	@echo "📊 Docker 容器资源使用:"
-	docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" game-postgres game-redis
+clean: ## App: 清理编译与发布目录
+	rm -rf bin $(DIST_DIR) *.pid
+	@echo "✅ 清理完成"
 
-db-size: ## 查看数据库大小
-	@echo "📊 数据库表大小:"
-	@docker exec game-postgres psql -U user -d game_chat -c "\
-		SELECT \
-			schemaname, \
-			tablename, \
-			pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size \
-		FROM pg_tables \
-		WHERE schemaname = 'public' \
-		ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;"
-
-db-connections: ## 查看数据库连接数
-	@echo "📊 当前数据库连接:"
-	@docker exec game-postgres psql -U user -d game_chat -c "\
-		SELECT \
-			pid, \
-			usename, \
-			application_name, \
-			client_addr, \
-			state, \
-			state_change \
-		FROM pg_stat_activity \
-		WHERE datname = 'game_chat';"
-
-redis-info: ## 查看 Redis 信息
-	@echo "📊 Redis 信息:"
-	@docker exec game-redis redis-cli INFO | grep -E "(redis_version|uptime_in_days|connected_clients|used_memory_human|total_commands_processed)"
-
-redis-keys: ## 查看 Redis 键数量
-	@echo "📊 Redis 键统计:"
-	@docker exec game-redis redis-cli DBSIZE
-
-init-sample-data: ## 初始化示例数据
-	@echo "💾 插入示例数据..."
-	@docker exec -i game-postgres psql -U user -d game_chat << 'EOF'
-	-- 插入测试用户在线状态
-	INSERT INTO user_presence (user_id, game_id, status) VALUES
-		(1001, 'mmo', 'online'),
-		(1002, 'mmo', 'online'),
-		(1003, 'mmo', 'offline')
-	ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status;
-	
-	-- 插入测试消息
-	INSERT INTO messages (sender_id, receiver_id, content, message_type) VALUES
-		(1001, 1002, '你好！欢迎来到游戏世界！', 'private'),
-		(1002, 1001, '谢谢！这个游戏真不错！', 'private');
-	
-	-- 插入测试公告
-	INSERT INTO announcements (title, content, announcement_type, game_id, start_time, end_time, created_by) VALUES
-		('欢迎公告', '欢迎来到我们的游戏！', 'game', 'mmo', NOW(), NOW() + INTERVAL '7 days', 'system'),
-		('维护通知', '服务器将于今晚 22:00 进行维护', 'maintenance', 'mmo', NOW(), NOW() + INTERVAL '1 day', 'admin');
-	
-	SELECT '✅ 示例数据已插入' AS status;
-	EOF
-
-clean-messages: ## 清空消息表 (保留其他数据)
-	@echo "⚠️  清空消息表..."
-	@read -p "确认清空消息表？(yes/no): " confirm && [ "$$confirm" = "yes" ] || exit 1
-	docker exec game-postgres psql -U user -d game_chat -c "TRUNCATE TABLE messages RESTART IDENTITY CASCADE;"
-	@echo "✅ 消息表已清空"
-
-migrate: ## 运行数据库迁移 (预留接口)
-	@echo "🔄 运行数据库迁移..."
-	@echo "ℹ️  提示: 请实现您的迁移工具逻辑"
-
-rebuild: down ## 重建服务 (删除容器但保留数据)
-	docker-compose up -d --build
-	@echo "✅ 服务已重建"
-
-prune: ## 清理未使用的 Docker 资源
-	docker system prune -f
-	@echo "✅ Docker 资源已清理"

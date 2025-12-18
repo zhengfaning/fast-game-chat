@@ -76,14 +76,17 @@ func (ChatRequest_MessageType) EnumDescriptor() ([]byte, []int) {
 
 type ChatRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 1. 包含 Base 字段
+	// 1. 核心字段（必须）
 	Base *common.MessageBase `protobuf:"bytes,1,opt,name=base,proto3" json:"base,omitempty"`
 	// 2. 业务特定字段
-	ReceiverId    int32                   `protobuf:"varint,2,opt,name=receiver_id,json=receiverId,proto3" json:"receiver_id,omitempty"` // 私聊接收者（0 表示频道消息）
-	ChannelId     int32                   `protobuf:"varint,3,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`    // 频道 ID（0 表示私聊）
-	Type          ChatRequest_MessageType `protobuf:"varint,4,opt,name=type,proto3,enum=chat.ChatRequest_MessageType" json:"type,omitempty"`
-	Content       string                  `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
-	ExtraData     []byte                  `protobuf:"bytes,6,opt,name=extra_data,json=extraData,proto3" json:"extra_data,omitempty"` // 附加数据（如道具信息）
+	ReceiverId int32                   `protobuf:"varint,2,opt,name=receiver_id,json=receiverId,proto3" json:"receiver_id,omitempty"` // 私聊接收者（0 表示频道消息）
+	ChannelId  int32                   `protobuf:"varint,3,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`    // 频道 ID（0 表示私聊）
+	Type       ChatRequest_MessageType `protobuf:"varint,4,opt,name=type,proto3,enum=chat.ChatRequest_MessageType" json:"type,omitempty"`
+	Content    string                  `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
+	ExtraData  []byte                  `protobuf:"bytes,6,opt,name=extra_data,json=extraData,proto3" json:"extra_data,omitempty"` // 附加数据（如道具信息）
+	// 3. 可选扩展元数据（按需使用，大部分情况下为空）
+	// 用途：需要追踪、版本控制时才填充
+	Meta          *common.MessageMeta `protobuf:"bytes,10,opt,name=meta,proto3" json:"meta,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -156,6 +159,13 @@ func (x *ChatRequest) GetContent() string {
 func (x *ChatRequest) GetExtraData() []byte {
 	if x != nil {
 		return x.ExtraData
+	}
+	return nil
+}
+
+func (x *ChatRequest) GetMeta() *common.MessageMeta {
+	if x != nil {
+		return x.Meta
 	}
 	return nil
 }
@@ -358,7 +368,7 @@ var File_chat_chat_message_proto protoreflect.FileDescriptor
 
 const file_chat_chat_message_proto_rawDesc = "" +
 	"\n" +
-	"\x17chat/chat_message.proto\x12\x04chat\x1a\x19common/message_base.proto\"\xa0\x02\n" +
+	"\x17chat/chat_message.proto\x12\x04chat\x1a\x19common/message_base.proto\"\xc9\x02\n" +
 	"\vChatRequest\x12'\n" +
 	"\x04base\x18\x01 \x01(\v2\x13.common.MessageBaseR\x04base\x12\x1f\n" +
 	"\vreceiver_id\x18\x02 \x01(\x05R\n" +
@@ -368,7 +378,9 @@ const file_chat_chat_message_proto_rawDesc = "" +
 	"\x04type\x18\x04 \x01(\x0e2\x1d.chat.ChatRequest.MessageTypeR\x04type\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x1d\n" +
 	"\n" +
-	"extra_data\x18\x06 \x01(\fR\textraData\"<\n" +
+	"extra_data\x18\x06 \x01(\fR\textraData\x12'\n" +
+	"\x04meta\x18\n" +
+	" \x01(\v2\x13.common.MessageMetaR\x04meta\"<\n" +
 	"\vMessageType\x12\b\n" +
 	"\x04TEXT\x10\x00\x12\t\n" +
 	"\x05EMOJI\x10\x01\x12\b\n" +
@@ -419,17 +431,19 @@ var file_chat_chat_message_proto_goTypes = []any{
 	(*ChatResponse)(nil),         // 2: chat.ChatResponse
 	(*MessageBroadcast)(nil),     // 3: chat.MessageBroadcast
 	(*common.MessageBase)(nil),   // 4: common.MessageBase
+	(*common.MessageMeta)(nil),   // 5: common.MessageMeta
 }
 var file_chat_chat_message_proto_depIdxs = []int32{
 	4, // 0: chat.ChatRequest.base:type_name -> common.MessageBase
 	0, // 1: chat.ChatRequest.type:type_name -> chat.ChatRequest.MessageType
-	4, // 2: chat.ChatResponse.base:type_name -> common.MessageBase
-	0, // 3: chat.MessageBroadcast.type:type_name -> chat.ChatRequest.MessageType
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 2: chat.ChatRequest.meta:type_name -> common.MessageMeta
+	4, // 3: chat.ChatResponse.base:type_name -> common.MessageBase
+	0, // 4: chat.MessageBroadcast.type:type_name -> chat.ChatRequest.MessageType
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_chat_chat_message_proto_init() }

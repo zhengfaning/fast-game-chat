@@ -3,7 +3,8 @@ package mq
 import (
 	"context"
 	"fmt"
-	"log"
+
+	"game-gateway/internal/logger"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -54,7 +55,7 @@ func (r *RedisMQ) Subscribe(topic string) (<-chan *Message, error) {
 			select {
 			case redisMsg, ok := <-ch:
 				if !ok {
-					log.Printf("Redis PubSub channel closed for topic: %s", topic)
+					logger.Debug(logger.TagMQ, "Redis PubSub channel closed for topic: %s", topic)
 					return
 				}
 				msgChan <- &Message{

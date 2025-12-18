@@ -2,9 +2,9 @@ package router
 
 import (
 	"fmt"
-	"log"
 
 	"game-gateway/internal/backend"
+	"game-gateway/internal/logger"
 	"game-gateway/internal/session"
 	"game-gateway/pkg/protocol"
 
@@ -75,7 +75,7 @@ func (r *Router) routeChatPacket(s *session.Session, pkt *protocol.Packet) error
 
 	// 自动绑定 UserID（如果还没绑定）
 	if s.UserID == 0 && req.Base.UserId > 0 {
-		log.Printf("CHAT: Binding Session %s to UserID %d", s.ID, req.Base.UserId)
+		logger.Debug(logger.TagSession, "Binding Session %s to UserID %d", s.ID, req.Base.UserId)
 		r.sessionManager.Bind(req.Base.UserId, s.ID)
 		s.UserID = req.Base.UserId
 	}
@@ -101,23 +101,23 @@ func (r *Router) forwardToBackend(pool *backend.BackendPool, s *session.Session,
 
 func (r *Router) HandleBackendMessage(data []byte) {
 	// 纯 Protobuf 处理，无需 Envelope
-	log.Printf("🔄 [BACKEND-MSG] Received from backend | Size: %d bytes", len(data))
+	logger.Debug(logger.TagBackend, "Received from backend | Size: %d bytes", len(data))
 
 	// 1. 尝试解析 ChatResponse
 	var resp chat.ChatResponse
 	if err := proto.Unmarshal(data, &resp); err == nil && (resp.TargetUserId > 0 || resp.TargetSessionId != "") {
-		log.Printf("📦 [PARSE-RESP] ChatResponse parsed | To: %d, Session: %s, Success: %v",
+		logger.Debug(logger.TagRouter, "ChatResponse parsed | To: %d, Session: %s, Success: %v",
 			resp.TargetUserId, resp.TargetSessionId, resp.Success)
 
 		if err := r.routeToClient(protocol.RouteChat, resp.TargetUserId, resp.TargetSessionId, data); err != nil {
-			log.Printf("❌ [ROUTE-FAIL] Failed to route ChatResponse | To: %d, Error: %v", resp.TargetUserId, err)
+			logger.Warn(logger.TagRouter, "Failed to route ChatResponse | To: %d, Error: %v", resp.TargetUserId, err)
 		} else {
-			log.Printf("✅ [ROUTE-OK] ChatResponse routed successfully | To: %d", resp.TargetUserId)
+			logger.Debug(logger.TagRouter, "ChatResponse routed successfully | To: %d", resp.TargetUserId)
 		}
 		return
 	}
 
-	log.Printf("⚠️  [PARSE-UNKNOWN] Unable to parse message | Size: %d", len(data))
+	logger.Warn(logger.TagRouter, "Unable to parse message | Size: %d", len(data))
 }
 
 func (r *Router) HandleBroadcast(data []byte) {
@@ -126,16 +126,16 @@ func (r *Router) HandleBroadcast(data []byte) {
 
 	var broadcast chat.MessageBroadcast
 	if err := proto.Unmarshal(data, &broadcast); err != nil {
-		log.Printf("❌ [MQ-PARSE-FAIL] Failed to parse broadcast | Error: %v", err)
+		logger.Error(logger.TagMQ, "Failed to parse broadcast | Error: %v", err)
 		return
 	}
 
 	if broadcast.TargetUserId == 0 {
-		log.Printf("⚠️ [MQ-SKIP] Broadcast with no TargetUserId | Sender: %d", broadcast.SenderId)
+		logger.Warn(logger.TagMQ, "Broadcast with no TargetUserId | Sender: %d", broadcast.SenderId)
 		return
 	}
 
-	log.Printf("📢 [MQ-RECV] Received broadcast | To: %d, From: %d, Size: %d",
+	logger.Debug(logger.TagMQ, "Received broadcast | To: %d, From: %d, Size: %d",
 		broadcast.TargetUserId, broadcast.SenderId, len(data))
 
 	if err := r.routeToClient(protocol.RouteChat, broadcast.TargetUserId, "", data); err != nil {
@@ -144,10 +144,10 @@ func (r *Router) HandleBroadcast(data []byte) {
 		// 降低 "target not found" 的日志级别或忽略，只记录其他错误
 		// 这里还是先记录，方便调试
 		if err.Error()[:16] != "target not found" {
-			log.Printf("❌ [MQ-ROUTE-FAIL] Failed to route broadcast | To: %d, Error: %v", broadcast.TargetUserId, err)
+			logger.Debug(logger.TagMQ, "Failed to route broadcast (target not found) | To: %d", broadcast.TargetUserId)
 		}
 	} else {
-		log.Printf("✅ [MQ-ROUTE-OK] Broadcast routed | To: %d", broadcast.TargetUserId)
+		logger.Debug(logger.TagRouter, "Broadcast routed | To: %d", broadcast.TargetUserId)
 	}
 }
 
@@ -193,7 +193,7 @@ func (r *Router) routeToClient(route protocol.RouteType, userID int32, sessionID
 		bufferCap := cap(sess.Send)
 		usagePercent := bufferUsage * 100 / bufferCap
 
-		log.Printf("❌ MESSAGE DROPPED - Session buffer full | "+
+		logger.Error(logger.TagRouter, "MESSAGE DROPPED - Session buffer full | "+
 			"UserID: %d, SessionID: %s, Route: %d, "+
 			"BufferUsage: %d/%d (%d%%), PayloadSize: %d bytes",
 			userID, sess.ID, route, bufferUsage, bufferCap, usagePercent, len(payload))

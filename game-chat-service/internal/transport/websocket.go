@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 
+	"game-chat-service/internal/logger"
+
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 
@@ -37,7 +39,7 @@ func NewWSServer(port int, svc *service.ChatService) *WSServer {
 
 func (s *WSServer) Start() error {
 	http.HandleFunc("/", s.handleConnection) // Gateway connects to root
-	log.Printf("Chat Service (WS) listening on %s", s.addr)
+	logger.Info(logger.TagTransport, "Chat Service (WS) listening on %s", s.addr)
 	return http.ListenAndServe(s.addr, nil)
 }
 
@@ -62,10 +64,10 @@ func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 		defer close(done)
 		for data := range writeChan {
 			if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-				log.Printf("Write error: %v", err)
+				logger.Error(logger.TagTransport, "Write error: %v", err)
 				return
 			}
-			log.Printf("WritePump: Successfully wrote %d bytes to Gateway", len(data))
+			logger.Debug(logger.TagTransport, "Successfully wrote %d bytes to Gateway", len(data))
 		}
 	}()
 
@@ -73,7 +75,7 @@ func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WS error: %v", err)
+				logger.Debug(logger.TagTransport, "WS error: %v", err)
 			}
 			break
 		}
@@ -82,17 +84,17 @@ func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 		// Gateway 已经提取了 Payload 并转发给我们
 		var req chat.ChatRequest
 		if err := proto.Unmarshal(message, &req); err != nil {
-			log.Printf("Failed to unmarshal ChatRequest: %v", err)
+			logger.Error(logger.TagTransport, "Failed to unmarshal ChatRequest: %v", err)
 			continue
 		}
 
-		log.Printf("Received ChatRequest from User %d to User %d: %s",
+		logger.Debug(logger.TagTransport, "Received ChatRequest from User %d to User %d: %s",
 			req.Base.UserId, req.ReceiverId, req.Content)
 
 		// Handle Request
 		resp, err := s.svc.HandleRequest(context.Background(), &req)
 		if err != nil {
-			log.Printf("Handle error: %v", err)
+			logger.Error(logger.TagTransport, "Handle error: %v", err)
 			continue
 		}
 
@@ -100,21 +102,21 @@ func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 		if resp != nil {
 			respBytes, err := proto.Marshal(resp)
 			if err != nil {
-				log.Printf("Marshal response error: %v", err)
+				logger.Error(logger.TagTransport, "Marshal response error: %v", err)
 				continue
 			}
 
 			// 通过写入队列发送（不直接写入）
 			select {
 			case writeChan <- respBytes:
-				log.Printf("Queued ChatResponse to Gateway (%d bytes)", len(respBytes))
+				logger.Debug(logger.TagTransport, "Queued ChatResponse to Gateway (%d bytes)", len(respBytes))
 			default:
 				// 详细的丢弃日志
 				bufferUsage := len(writeChan)
 				bufferCap := cap(writeChan)
 				usagePercent := bufferUsage * 100 / bufferCap
 
-				log.Printf("❌ RESPONSE DROPPED - Write channel full | "+
+				logger.Error(logger.TagTransport, "RESPONSE DROPPED - Write channel full | "+
 					"BufferUsage: %d/%d (%d%%), ResponseSize: %d bytes, "+
 					"FromUser: %d, ToUser: %d",
 					bufferUsage, bufferCap, usagePercent, len(respBytes),

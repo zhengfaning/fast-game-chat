@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"game-chat-service/internal/hub"
+	"game-chat-service/internal/logger"
 	"game-chat-service/internal/mq" // New import
 	"game-chat-service/internal/repository"
 	"game-protocols/chat"
@@ -37,17 +37,17 @@ func (s *ChatService) HandleRequest(ctx context.Context, req *chat.ChatRequest) 
 	startTime := time.Now()
 	messageID := fmt.Sprintf("%d->%d:%s", req.Base.UserId, req.ReceiverId, req.Content[:min(20, len(req.Content))])
 
-	log.Printf("📥 [RECV] Message received | From: %d, To: %d, Content: %s, MsgID: %s",
+	logger.Debug(logger.TagService, "Message received | From: %d, To: %d, Content: %s, MsgID: %s",
 		req.Base.UserId, req.ReceiverId, req.Content[:min(50, len(req.Content))], messageID)
 
 	// 1. Persistence
 	dbStart := time.Now()
 	msgID, err := s.db.SaveMessage(ctx, req)
 	if err != nil {
-		log.Printf("❌ [DB-ERROR] Failed to save message | MsgID: %s, Error: %v", messageID, err)
+		logger.Error(logger.TagDB, "Failed to save message | MsgID: %s, Error: %v", messageID, err)
 		return nil, fmt.Errorf("persistence failed: %w", err)
 	}
-	log.Printf("💾 [DB-OK] Message saved | MsgID: %s, DBTime: %v", messageID, time.Since(dbStart))
+	logger.Debug(logger.TagDB, "Message saved | MsgID: %s, DBTime: %v", messageID, time.Since(dbStart))
 
 	// 2. Routing logic (via Hub)
 	s.hub.HandleMessage(ctx, req)
@@ -63,7 +63,7 @@ func (s *ChatService) HandleRequest(ctx context.Context, req *chat.ChatRequest) 
 		TargetUserId: req.Base.UserId,
 	}
 
-	log.Printf("✅ [ACK-PREPARE] Response ready for sender | To: %d, MsgID: %s", req.Base.UserId, messageID)
+	logger.Debug(logger.TagService, "Response ready for sender | To: %d, MsgID: %s", req.Base.UserId, messageID)
 
 	// If private chat, forward to Receiver as well
 	// If private chat, forward to Receiver as well
@@ -79,27 +79,27 @@ func (s *ChatService) HandleRequest(ctx context.Context, req *chat.ChatRequest) 
 			TargetUserId: req.ReceiverId,
 		}
 
-		log.Printf("📤 [BROADCAST-START] Preparing broadcast | From: %d, To: %d, MsgID: %s",
+		logger.Debug(logger.TagMQ, "Preparing broadcast | From: %d, To: %d, MsgID: %s",
 			req.Base.UserId, req.ReceiverId, messageID)
 
 		// 直接序列化并发送（不包装 Envelope）
 		broadcastBytes, err := proto.Marshal(broadcast)
 		if err != nil {
-			log.Printf("❌ [MARSHAL-ERROR] Failed to marshal broadcast | MsgID: %s, Error: %v", messageID, err)
+			logger.Error(logger.TagMQ, "Failed to marshal broadcast | MsgID: %s, Error: %v", messageID, err)
 		} else {
 			sendStart := time.Now()
 			// 使用 Redis 发布
 			if err := s.producer.Publish("broadcast", broadcastBytes); err != nil {
-				log.Printf("❌ [SEND-ERROR] Failed to send broadcast | MsgID: %s, Error: %v", messageID, err)
+				logger.Error(logger.TagMQ, "Failed to send broadcast | MsgID: %s, Error: %v", messageID, err)
 			} else {
-				log.Printf("✅ [BROADCAST-OK] Broadcast sent via Redis | To: %d, Size: %d bytes, SendTime: %v, MsgID: %s",
+				logger.Debug(logger.TagMQ, "Broadcast sent via Redis | To: %d, Size: %d bytes, SendTime: %v, MsgID: %s",
 					req.ReceiverId, len(broadcastBytes), time.Since(sendStart), messageID)
 			}
 		}
 	}
 
 	totalTime := time.Since(startTime)
-	log.Printf("⏱️  [COMPLETE] Message processing complete | MsgID: %s, TotalTime: %v", messageID, totalTime)
+	logger.Debug(logger.TagPerf, "Message processing complete | MsgID: %s, TotalTime: %v", messageID, totalTime)
 
 	return resp, nil
 }

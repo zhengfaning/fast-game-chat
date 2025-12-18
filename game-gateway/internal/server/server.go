@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"game-gateway/internal/logger"
 	"game-gateway/internal/router"
 	"game-gateway/internal/session"
 	"game-gateway/pkg/protocol"
@@ -37,7 +38,7 @@ func NewServer(addr string, r *router.Router, s *session.Manager) *Server {
 
 func (s *Server) Start() error {
 	http.HandleFunc("/ws", s.handleConnection)
-	log.Printf("Gateway listening on %s", s.addr)
+	logger.Info(logger.TagSession, "Gateway listening on %s", s.addr)
 	return http.ListenAndServe(s.addr, nil)
 }
 
@@ -62,7 +63,7 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 	s.sessions.Add(sess)
 
 	// 在 session 中存储协议连接（扩展 Session 结构体）
-	log.Printf("New connection: Session %s", sess.ID)
+	logger.Debug(logger.TagSession, "New connection: Session %s", sess.ID)
 
 	// Start loops
 	go s.writePump(sess)
@@ -72,7 +73,7 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 // readPump 使用二进制协议读取消息
 func (s *Server) readPump(sess *session.Session, wsConn *protocol.WSConn) {
 	defer func() {
-		log.Printf("ReadPump ended for Session %s", sess.ID)
+		logger.Debug(logger.TagSession, "ReadPump ended for Session %s", sess.ID)
 		s.sessions.Remove(sess.ID)
 		sess.Conn.Close()
 	}()
@@ -89,7 +90,7 @@ func (s *Server) readPump(sess *session.Session, wsConn *protocol.WSConn) {
 		pkt, err := wsConn.ReadPacket()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Read error for Session %s: %v", sess.ID, err)
+				logger.Debug(logger.TagSession, "Read error for Session %s: %v", sess.ID, err)
 			}
 			break
 		}
@@ -102,7 +103,7 @@ func (s *Server) readPump(sess *session.Session, wsConn *protocol.WSConn) {
 
 		// 路由消息 - 只传递 Payload (纯 Protobuf)
 		if err := s.router.RoutePacket(sess, pkt); err != nil {
-			log.Printf("Routing error for Session %s: %v", sess.ID, err)
+			logger.Warn(logger.TagRouter, "Routing error for Session %s: %v", sess.ID, err)
 		}
 	}
 }
@@ -113,7 +114,7 @@ func (s *Server) writePump(sess *session.Session) {
 	defer func() {
 		ticker.Stop()
 		sess.Conn.Close()
-		log.Printf("WritePump ended for Session %s", sess.ID)
+		logger.Debug(logger.TagSession, "WritePump ended for Session %s", sess.ID)
 	}()
 
 	for {
@@ -127,14 +128,14 @@ func (s *Server) writePump(sess *session.Session) {
 
 			// message 现在是完整的协议包（已包含头部）
 			// 直接通过 WebSocket 发送
-			log.Printf("WritePump: Sending %d bytes to Session %s", len(message), sess.ID)
+			logger.Debug(logger.TagProtocol, "Sending %d bytes to Session %s", len(message), sess.ID)
 
 			if err := sess.Conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
-				log.Printf("WritePump: Write error for Session %s: %v", sess.ID, err)
+				logger.Error(logger.TagSession, "Write error for Session %s: %v", sess.ID, err)
 				return
 			}
 
-			log.Printf("WritePump: Successfully sent to Session %s", sess.ID)
+			logger.Debug(logger.TagProtocol, "Successfully sent to Session %s", sess.ID)
 
 		case <-ticker.C:
 			sess.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))

@@ -4,6 +4,8 @@ import (
 	"log"
 	"sync"
 
+	"game-gateway/internal/logger"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -32,24 +34,24 @@ func (m *Manager) Add(s *Session) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sessions[s.ID] = s
-	log.Printf("SessionManager: Added session %s", s.ID)
+	logger.Debug(logger.TagSession, "Added session %s", s.ID)
 }
 
 func (m *Manager) Bind(userID int32, sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	log.Printf("SessionManager.Bind: Trying to bind UserID %d to Session %s", userID, sessionID)
+	logger.Debug(logger.TagSession, "Trying to bind UserID %d to Session %s", userID, sessionID)
 
 	s, ok := m.sessions[sessionID]
 	if !ok {
-		log.Printf("SessionManager.Bind: ERROR - Session %s not found!", sessionID)
+		logger.Error(logger.TagSession, "Bind ERROR - Session %s not found!", sessionID)
 		return
 	}
 
 	s.UserID = userID
 	m.userSessions[userID] = s
-	log.Printf("SessionManager.Bind: Successfully bound UserID %d to Session %s", userID, sessionID)
+	logger.Debug(logger.TagSession, "Successfully bound UserID %d to Session %s", userID, sessionID)
 }
 
 func (m *Manager) Remove(id string) {
@@ -58,10 +60,10 @@ func (m *Manager) Remove(id string) {
 
 	s, ok := m.sessions[id]
 	if ok && s.UserID != 0 {
-		log.Printf("SessionManager.Remove: Removing Session %s (UserID=%d)", id, s.UserID)
+		logger.Debug(logger.TagSession, "Removing Session %s (UserID=%d)", id, s.UserID)
 		delete(m.userSessions, s.UserID)
 	} else {
-		log.Printf("SessionManager.Remove: Removing Session %s (no UserID)", id)
+		logger.Debug(logger.TagSession, "Removing Session %s (no UserID)", id)
 	}
 	delete(m.sessions, id)
 }
@@ -79,7 +81,7 @@ func (m *Manager) GetByUserID(userID int32) *Session {
 	if s != nil {
 		log.Printf("SessionManager.GetByUserID: Found UserID %d -> Session %s", userID, s.ID)
 	} else {
-		log.Printf("SessionManager.GetByUserID: UserID %d NOT FOUND. Current userSessions map has %d entries", userID, len(m.userSessions))
+		logger.Debug(logger.TagSession, "UserID %d NOT FOUND. Current userSessions map has %d entries", userID, len(m.userSessions))
 		// Debug: print all entries
 		for uid, sess := range m.userSessions {
 			log.Printf("  - UserID %d -> Session %s", uid, sess.ID)

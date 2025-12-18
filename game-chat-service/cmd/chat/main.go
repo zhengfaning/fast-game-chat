@@ -7,6 +7,7 @@ import (
 
 	"game-chat-service/internal/config"
 	"game-chat-service/internal/hub"
+	"game-chat-service/internal/logger"
 	"game-chat-service/internal/mq"
 	"game-chat-service/internal/repository"
 	"game-chat-service/internal/service"
@@ -23,6 +24,16 @@ type grpcServer struct {
 }
 
 func main() {
+	// Initialize logger first
+	logger.Init()
+	// Enable debug logging for troubleshooting
+	logger.SetLevel(logger.DEBUG)
+	logger.EnableTag(logger.TagService)
+	logger.EnableTag(logger.TagMQ)
+	// Disable noisy logs
+	logger.DisableTag(logger.TagDB)
+	logger.DisableTag(logger.TagTransport)
+
 	// 1. Load Config
 	cfg, err := config.Load()
 	if err != nil {

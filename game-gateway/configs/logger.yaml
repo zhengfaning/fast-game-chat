@@ -1,0 +1,13 @@
+# Gateway 日志配置
+logger:
+  # 日志级别: DEBUG, INFO, WARN, ERROR
+  level: INFO
+  
+  # 启用的日志标签
+  enabled_tags:
+    - ROUTER      # 路由相关日志
+    - MQ          # 消息队列相关日志
+    - BACKEND     # 后端连接相关日志
+    # - SESSION   # Session管理日志（调试时启用）
+    # - PROTOCOL  # 协议解析日志（调试时启用）
+    # - PERF      # 性能统计日志（调试时启用）

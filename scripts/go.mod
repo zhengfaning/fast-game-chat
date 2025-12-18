@@ -7,6 +7,7 @@ replace game-protocols => ../game-protocols
 require (
 	game-gateway v0.0.0-00010101000000-000000000000
 	game-protocols v0.0.0-00010101000000-000000000000
+	github.com/go-redis/redis/v8 v8.11.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/redis/go-redis/v9 v9.17.2
 	google.golang.org/protobuf v1.36.11

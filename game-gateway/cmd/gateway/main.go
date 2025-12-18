@@ -6,6 +6,7 @@ import (
 
 	"game-gateway/internal/backend"
 	"game-gateway/internal/config"
+	"game-gateway/internal/logger"
 	"game-gateway/internal/mq"
 	"game-gateway/internal/router"
 	"game-gateway/internal/server"
@@ -15,6 +16,16 @@ import (
 )
 
 func main() {
+	// Initialize logger first
+	logger.Init()
+	// Enable debug logging for troubleshooting
+	logger.SetLevel(logger.DEBUG)
+	logger.EnableTag(logger.TagRouter)
+	logger.EnableTag(logger.TagMQ)
+	// Disable noisy logs
+	logger.DisableTag(logger.TagSession)
+	logger.DisableTag(logger.TagProtocol)
+
 	// 1. Load config
 	cfg, err := config.Load()
 	if err != nil {

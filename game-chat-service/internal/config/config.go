@@ -1,6 +1,7 @@
 package config
 
 import (
+	"flag"
 	"log"
 
 	"github.com/spf13/viper"
@@ -23,11 +24,21 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	viper.SetConfigName("chat")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("../configs") // 支持从 dist/bin 运行
-	viper.AddConfigPath("configs")
-	viper.AddConfigPath(".")
+	// 支持 -config 命令行参数
+	var configPath string
+	flag.StringVar(&configPath, "config", "", "配置文件路径")
+	flag.Parse()
+
+	if configPath != "" {
+		// 如果指定了配置文件路径，直接使用
+		viper.SetConfigFile(configPath)
+	} else {
+		// 否则使用默认搜索逻辑
+		viper.SetConfigName("chat")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath("configs")
+		viper.AddConfigPath(".")
+	}
 
 	viper.AutomaticEnv()
 

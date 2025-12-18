@@ -3,6 +3,7 @@ DOCKER_DIR := docker
 DIST_DIR := dist
 DIST_BIN := $(DIST_DIR)/bin
 DIST_CONFIG := $(DIST_DIR)/configs
+TMP_DIR := tmp
 DOCKER_COMPOSE := docker-compose -f $(DOCKER_DIR)/docker-compose.yml
 
 # 服务名称
@@ -19,8 +20,8 @@ GATEWAY_SRC := $(shell find $(GATEWAY_SERVICE) -name "*.go" 2>/dev/null)
 # 依赖生成的 Go 文件
 GENERATED_GO := $(shell find game-protocols -name "*.pb.go" 2>/dev/null)
 
-.PHONY: all help build release docker-up docker-down docker-restart docker-logs docker-ps docker-clean \
-        run stop restart-app clean-dist psql redis-cli test-db test-redis stats
+.PHONY: all help build release docker-up docker-down docker-restart docker-logs docker-psql docker-clean \
+        run stop restart-app logs clean psql redis-cli test-db test-redis stats
 
 all: help
 
@@ -54,26 +55,46 @@ release: build ## App: 编译并部署到 dist 目录
 	@mkdir -p $(DIST_BIN) $(DIST_CONFIG)
 	@cp $(CHAT_BIN) $(DIST_BIN)/
 	@cp $(GATEWAY_BIN) $(DIST_BIN)/
-	@cp chat.yaml $(DIST_CONFIG)/
-	@cp gateway.yaml $(DIST_CONFIG)/
+	@if [ ! -f $(DIST_CONFIG)/chat.yaml ]; then \
+		cp $(CHAT_SERVICE)/configs/chat.yaml $(DIST_CONFIG)/ && echo "✅ 复制 chat.yaml"; \
+	else \
+		echo "⏭️  跳过 chat.yaml (已存在)"; \
+	fi
+	@if [ ! -f $(DIST_CONFIG)/gateway.yaml ]; then \
+		cp $(GATEWAY_SERVICE)/configs/gateway.yaml $(DIST_CONFIG)/ && echo "✅ 复制 gateway.yaml"; \
+	else \
+		echo "⏭️  跳过 gateway.yaml (已存在)"; \
+	fi
 	@echo "✅ 发布版本已就绪: $(DIST_DIR)"
 
 # --- 运行命令 ---
 
 run: release ## App: 启动服务 (后台运行)
 	@echo "🟢 正在启动服务..."
-	@mkdir -p logs
-	@cd $(DIST_BIN) && ./$(GATEWAY_SERVICE) > ../../gateway.log 2>&1 & echo $$! > ../../gateway.pid
-	@cd $(DIST_BIN) && ./$(CHAT_SERVICE) -config ../configs/chat.yaml > ../../chat.log 2>&1 & echo $$! > ../../chat.pid
+	@mkdir -p $(TMP_DIR)
+	@./$(DIST_BIN)/$(GATEWAY_SERVICE) -config $(DIST_CONFIG)/gateway.yaml > $(TMP_DIR)/gateway.log 2>&1 & echo $$! > $(TMP_DIR)/gateway.pid
+	@./$(DIST_BIN)/$(CHAT_SERVICE) -config $(DIST_CONFIG)/chat.yaml > $(TMP_DIR)/chat.log 2>&1 & echo $$! > $(TMP_DIR)/chat.pid
 	@echo "✅ 服务已在后台启动"
 
 stop: ## App: 停止服务
 	@echo "🔴 正在停止服务..."
-	@if [ -f gateway.pid ]; then kill $$(cat gateway.pid) && rm gateway.pid && echo "Stop Gateway ok"; fi
-	@if [ -f chat.pid ]; then kill $$(cat chat.pid) && rm chat.pid && echo "Stop Chat ok"; fi
+	@if [ -f $(TMP_DIR)/gateway.pid ]; then kill $$(cat $(TMP_DIR)/gateway.pid) && rm $(TMP_DIR)/gateway.pid && echo "Stop Gateway ok"; fi
+	@if [ -f $(TMP_DIR)/chat.pid ]; then kill $$(cat $(TMP_DIR)/chat.pid) && rm $(TMP_DIR)/chat.pid && echo "Stop Chat ok"; fi
 	@echo "✅ 所有服务已停止"
 
 restart-app: stop run ## App: 重启应用服务
+
+logs: ## App: 查看应用日志
+	@if [ -f $(TMP_DIR)/gateway.log ]; then \
+		echo "=== Gateway Logs ===" && tail -f $(TMP_DIR)/gateway.log; \
+	else \
+		echo "❌ Gateway 日志文件不存在"; \
+	fi
+	@if [ -f $(TMP_DIR)/chat.log ]; then \
+		echo "=== Chat Service Logs ===" && tail -f $(TMP_DIR)/chat.log; \
+	else \
+		echo "❌ Chat Service 日志文件不存在"; \
+	fi
 
 # --- Docker 命令 (已调整路径) ---
 
@@ -116,7 +137,12 @@ test-redis: ## Docker: 测试 Redis 连接
 stats: ## Docker: 显示资源使用
 	docker stats --no-stream game-postgres game-redis
 
+test-stress: ## Test: 运行压力测试 (使用 USERS=N 指定用户数，默认1000)
+	@echo "🧪 开始压力测试 ($(or $(USERS),1000) 并发用户)..."
+	@echo "⚠️  请确保服务已启动 (make run)"
+	@cd scripts && go run stress_cluster.go -users=$(or $(USERS),1000)
+
 clean: ## App: 清理编译与发布目录
-	rm -rf bin $(DIST_DIR) *.pid
+	rm -rf bin $(DIST_DIR) $(TMP_DIR)
 	@echo "✅ 清理完成"
 

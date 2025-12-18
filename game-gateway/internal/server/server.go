@@ -8,8 +8,9 @@ import (
 	"game-gateway/internal/router"
 	"game-gateway/internal/session"
 	"game-gateway/pkg/protocol"
-	"github.com/gorilla/websocket"
+
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 type Server struct {
@@ -25,8 +26,8 @@ func NewServer(addr string, r *router.Router, s *session.Manager) *Server {
 		router:   r,
 		sessions: s,
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  4096,
-			WriteBufferSize: 4096,
+			ReadBufferSize:  8192, // 增加到 8KB
+			WriteBufferSize: 8192, // 增加到 8KB
 			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins for dev
 			},
@@ -51,11 +52,11 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 	wsConn := protocol.NewWSConn(conn)
 	wsConn.SetReadLimit(16 * 1024 * 1024) // 16MB
 
-	// Create session
+	// Create session with larger buffer for high concurrency
 	sess := &session.Session{
 		ID:        uuid.New().String(),
-		Conn:      conn,  // 保留原始连接用于底层操作
-		Send:      make(chan []byte, 256),
+		Conn:      conn,                    // 保留原始连接用于底层操作
+		Send:      make(chan []byte, 1024), // 增加到 1024
 		AuthToken: "",
 	}
 	s.sessions.Add(sess)
@@ -127,12 +128,12 @@ func (s *Server) writePump(sess *session.Session) {
 			// message 现在是完整的协议包（已包含头部）
 			// 直接通过 WebSocket 发送
 			log.Printf("WritePump: Sending %d bytes to Session %s", len(message), sess.ID)
-			
+
 			if err := sess.Conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
 				log.Printf("WritePump: Write error for Session %s: %v", sess.ID, err)
 				return
 			}
-			
+
 			log.Printf("WritePump: Successfully sent to Session %s", sess.ID)
 
 		case <-ticker.C:

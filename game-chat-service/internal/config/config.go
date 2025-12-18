@@ -25,6 +25,7 @@ type Config struct {
 func Load() (*Config, error) {
 	viper.SetConfigName("chat")
 	viper.SetConfigType("yaml")
+	viper.AddConfigPath("../configs") // 支持从 dist/bin 运行
 	viper.AddConfigPath("configs")
 	viper.AddConfigPath(".")
 
@@ -38,6 +39,6 @@ func Load() (*Config, error) {
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, err
 	}
-	
+
 	return &cfg, nil
 }

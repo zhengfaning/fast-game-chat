@@ -16,7 +16,7 @@ type BackendPool struct {
 	conns    chan *websocket.Conn
 	maxConns int
 	mu       sync.Mutex
-    handler  MessageHandler
+	handler  MessageHandler
 }
 
 func NewBackendPool(host string, port int, poolSize int, handler MessageHandler) *BackendPool {
@@ -25,7 +25,7 @@ func NewBackendPool(host string, port int, poolSize int, handler MessageHandler)
 		port:     port,
 		conns:    make(chan *websocket.Conn, poolSize),
 		maxConns: poolSize,
-        handler:  handler,
+		handler:  handler,
 	}
 }
 
@@ -56,20 +56,20 @@ func (p *BackendPool) createConnection() (*websocket.Conn, error) {
 		return nil, err
 	}
 
-    // Start read loop
-    go func() {
-        defer conn.Close()
-        for {
-            _, message, err := conn.ReadMessage()
-            if err != nil {
-                // log.Printf("Backend read error: %v", err)
-                return
-            }
-            if p.handler != nil {
-                p.handler(message)
-            }
-        }
-    }()
+	// Start read loop
+	go func() {
+		defer conn.Close()
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				// log.Printf("Backend read error: %v", err)
+				return
+			}
+			if p.handler != nil {
+				p.handler(message)
+			}
+		}
+	}()
 
 	return conn, nil
 }

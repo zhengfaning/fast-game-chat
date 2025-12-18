@@ -11,8 +11,8 @@ games:
     game_backend:
       host: "localhost"
       port: 9001
-      pool_size: 10
+      pool_size: 100
     chat_backend:
       host: "localhost"
       port: 9002
-      pool_size: 10
+      pool_size: 1  # 修改为 1，解决多连接消息丢失问题

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
 
 	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
@@ -19,10 +18,7 @@ type WSServer struct {
 	svc      *service.ChatService
 	upgrader websocket.Upgrader
 
-	// Active connection to Gateway (Simplified: assumption 1 active gateway conn)
-	activeConn *websocket.Conn
-	writeChan  chan []byte // 写入队列，避免并发写入
-	mu         sync.Mutex
+	// Active key-value pairs? No on-connection context needed globally.
 }
 
 func NewWSServer(port int, svc *service.ChatService) *WSServer {
@@ -30,8 +26,8 @@ func NewWSServer(port int, svc *service.ChatService) *WSServer {
 		addr: fmt.Sprintf(":%d", port),
 		svc:  svc,
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  4096,
-			WriteBufferSize: 4096,
+			ReadBufferSize:  8192, // 增加到 8KB
+			WriteBufferSize: 8192, // 增加到 8KB
 			CheckOrigin: func(r *http.Request) bool {
 				return true
 			},
@@ -45,28 +41,6 @@ func (s *WSServer) Start() error {
 	return http.ListenAndServe(s.addr, nil)
 }
 
-// SendToGateway 发送纯 Protobuf 数据到 Gateway
-// 不再使用 Envelope 包装
-func (s *WSServer) SendToGateway(data []byte) error {
-	s.mu.Lock()
-	writeChan := s.writeChan
-	s.mu.Unlock()
-
-	if writeChan == nil {
-		return fmt.Errorf("no active gateway connection")
-	}
-
-	log.Printf("WSServer.SendToGateway: Sending %d bytes to Gateway", len(data))
-
-	// 通过写入队列发送，避免并发写入
-	select {
-	case writeChan <- data:
-		return nil
-	default:
-		return fmt.Errorf("write channel full")
-	}
-}
-
 func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -74,21 +48,10 @@ func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 创建写入队列
-	writeChan := make(chan []byte, 100)
-
-	s.mu.Lock()
-	s.activeConn = conn
-	s.writeChan = writeChan
-	s.mu.Unlock()
+	// 创建写入队列（增大缓冲区以支持高并发）
+	writeChan := make(chan []byte, 512) // 增加到 512
 
 	defer func() {
-		s.mu.Lock()
-		if s.activeConn == conn {
-			s.activeConn = nil
-			s.writeChan = nil
-		}
-		s.mu.Unlock()
 		close(writeChan)
 		conn.Close()
 	}()
@@ -146,7 +109,16 @@ func (s *WSServer) handleConnection(w http.ResponseWriter, r *http.Request) {
 			case writeChan <- respBytes:
 				log.Printf("Queued ChatResponse to Gateway (%d bytes)", len(respBytes))
 			default:
-				log.Printf("Write channel full, dropping response")
+				// 详细的丢弃日志
+				bufferUsage := len(writeChan)
+				bufferCap := cap(writeChan)
+				usagePercent := bufferUsage * 100 / bufferCap
+
+				log.Printf("❌ RESPONSE DROPPED - Write channel full | "+
+					"BufferUsage: %d/%d (%d%%), ResponseSize: %d bytes, "+
+					"FromUser: %d, ToUser: %d",
+					bufferUsage, bufferCap, usagePercent, len(respBytes),
+					req.Base.UserId, resp.TargetUserId)
 			}
 		}
 	}

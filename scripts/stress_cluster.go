@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/url"
@@ -19,15 +20,15 @@ import (
 
 // 配置
 const (
-	UserCount      = 1000
 	StartUserID    = 2000
 	ConnectTimeout = 10 * time.Second
-	RedisAddr      = "localhost:6379"
+	RedisAddr      = "192.168.31.35:6379"
 )
 
 var (
-	rdb *redis.Client
-	ctx = context.Background()
+	UserCount int // 从命令行参数读取
+	rdb       *redis.Client
+	ctx       = context.Background()
 )
 
 // 初始化 Redis
@@ -54,6 +55,14 @@ func connect(userID int32) (*protocol.WSConn, error) {
 // 模拟单个用户行为
 func runUser(id int32, readyWg *sync.WaitGroup, finishWg *sync.WaitGroup, startChatChan chan bool) {
 	defer finishWg.Done()
+
+	// 添加 panic 恢复，防止单个 goroutine 崩溃影响整体测试
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[User %d] Recovered from panic: %v", id, r)
+		}
+	}()
+
 	conn, err := connect(id)
 	if err != nil {
 		log.Printf("[User %d] Connect failed: %v", id, err)
@@ -84,17 +93,19 @@ func runUser(id int32, readyWg *sync.WaitGroup, finishWg *sync.WaitGroup, startC
 	log.Printf("[User %d] Ready", id)
 	readyWg.Done() // 通知已就绪
 
-	// 等待所有用户连接完成
+	// 等待所有用户连接完成（超时 = 用户数 × 连接间隔 + 缓冲时间）
+	// 连接间隔 10ms，缓冲 30秒
+	waitTimeout := time.Duration(UserCount)*10*time.Millisecond + 30*time.Second
 	select {
 	case <-startChatChan:
-	case <-time.After(15 * time.Second):
-		log.Printf("[User %d] Timeout waiting for start signal", id)
+	case <-time.After(waitTimeout):
+		log.Printf("[User %d] Timeout waiting for start signal (waited %v)", id, waitTimeout)
 		return
 	}
 
 	// 2. 发送消息逻辑 (圆环模式: 我 -> 下一个人)
 	targetID := id + 1
-	if targetID >= StartUserID+UserCount {
+	if targetID >= int32(StartUserID+UserCount) {
 		targetID = StartUserID
 	}
 
@@ -125,55 +136,71 @@ func runUser(id int32, readyWg *sync.WaitGroup, finishWg *sync.WaitGroup, startC
 	receivedAck := false
 	receivedBroadcast := false
 
-	timeout := time.After(10 * time.Second)
+	// 超时 10 分钟（足够长，确保高并发下也能收到消息）
+	// 超时 10 分钟（足够长，确保高并发下也能收到消息）
+	log.Printf("[User %d] Waiting for messages (timeout: 10min)...", id)
+
+	conn.SetReadDeadline(time.Now().Add(10 * time.Minute))
 
 	for expectedEvents > 0 {
-		select {
-		case <-timeout:
-			log.Printf("[User %d] Timeout waiting for (ACK=%v, Broadcast=%v)", id, receivedAck, receivedBroadcast)
+		pkt, err := conn.ReadPacket()
+		if err != nil {
+			log.Printf("[User %d] ❌ Read error (fatal): %v", id, err)
 			return
-		default:
-			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-			pkt, err := conn.ReadPacket()
-			if err != nil {
-				continue
+		}
+
+		if pkt.Route != protocol.RouteChat {
+			continue
+		}
+
+		// Try Broadcast
+		var bc chat.MessageBroadcast
+		if err := proto.Unmarshal(pkt.Payload, &bc); err == nil && bc.Content != "" && bc.SenderId != id {
+			// log.Printf("[User %d] Received from %d", id, bc.SenderId)
+
+			// 记录实际接收到 Redis (Sender:Target:Content)
+			recvKey := fmt.Sprintf("%d:%d:%s", bc.SenderId, id, bc.Content)
+			rdb.SAdd(ctx, "stress:recv", recvKey)
+
+			if !receivedBroadcast {
+				receivedBroadcast = true
+				expectedEvents--
+				log.Printf("[User %d] ✅ Broadcast received from %d | Remaining: %d", id, bc.SenderId, expectedEvents)
 			}
 
-			if pkt.Route != protocol.RouteChat {
-				continue
+			// 如果已经收到所有消息，立即退出
+			if expectedEvents == 0 {
+				log.Printf("[User %d] ✅ All messages received, closing connection", id)
+				return
+			}
+			continue
+		}
+
+		// Try ACK
+		var resp chat.ChatResponse
+		if err := proto.Unmarshal(pkt.Payload, &resp); err == nil && resp.Success {
+			if !receivedAck {
+				receivedAck = true
+				expectedEvents--
+				log.Printf("[User %d] ✅ ACK received | Remaining: %d", id, expectedEvents)
 			}
 
-			// Try Broadcast
-			var bc chat.MessageBroadcast
-			if err := proto.Unmarshal(pkt.Payload, &bc); err == nil && bc.Content != "" && bc.SenderId != id {
-				// log.Printf("[User %d] Received from %d", id, bc.SenderId)
-
-				// 记录实际接收到 Redis (Sender:Target:Content)
-				recvKey := fmt.Sprintf("%d:%d:%s", bc.SenderId, id, bc.Content)
-				rdb.SAdd(ctx, "stress:recv", recvKey)
-
-				if !receivedBroadcast {
-					receivedBroadcast = true
-					expectedEvents--
-				}
-				continue
+			// 如果已经收到所有消息，立即退出
+			if expectedEvents == 0 {
+				log.Printf("[User %d] ✅ All messages received, closing connection", id)
+				return
 			}
-
-			// Try ACK
-			var resp chat.ChatResponse
-			if err := proto.Unmarshal(pkt.Payload, &resp); err == nil && resp.Success {
-				if !receivedAck {
-					receivedAck = true
-					expectedEvents--
-				}
-				continue
-			}
+			continue
 		}
 	}
 }
 
 func main() {
-	log.Println("=== Starting Stress Test (20 Users) ===")
+	// 解析命令行参数
+	flag.IntVar(&UserCount, "users", 1000, "并发用户数量")
+	flag.Parse()
+
+	log.Printf("=== Starting Stress Test (%d Users) ===", UserCount)
 	log.Println("STEP 1: Initializing Redis and Connections...")
 	initRedis()
 

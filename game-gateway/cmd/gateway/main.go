@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"game-gateway/internal/backend"
 	"game-gateway/internal/config"
 	"game-gateway/internal/logger"
 	"game-gateway/internal/mq"
@@ -35,35 +34,9 @@ func main() {
 	// 2. Initialize Router first (to handle callbacks)
 	r := router.NewRouter()
 
-	// Define backend message handler
-	handler := func(data []byte) {
-		r.HandleBackendMessage(data)
-	}
 
-	// 3. Initialize Backend Pools
-	gameBackends := make(map[string]*backend.BackendPool)
-	chatBackends := make(map[string]*backend.BackendPool)
-
-	for _, game := range cfg.Games {
-		log.Printf("Initializing backends for game: %s", game.ID)
-
-		gameBackends[game.ID] = backend.NewBackendPool(
-			game.GameBackend.Host,
-			game.GameBackend.Port,
-			game.GameBackend.PoolSize,
-			handler,
-		)
-
-		chatBackends[game.ID] = backend.NewBackendPool(
-			game.ChatBackend.Host,
-			game.ChatBackend.Port,
-			game.ChatBackend.PoolSize,
-			handler,
-		)
-	}
 
 	// Register backends to Router
-	r.SetBackends(gameBackends, chatBackends)
 
 	// 4. Initialize Session Manager
 	sm := session.NewManager()

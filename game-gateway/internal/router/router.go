@@ -3,7 +3,6 @@ package router
 import (
 	"fmt"
 
-	"game-gateway/internal/backend"
 	"game-gateway/internal/logger"
 	"game-gateway/internal/mq"
 	"game-gateway/internal/session"
@@ -21,23 +20,14 @@ type SessionManager interface {
 }
 
 type Router struct {
-	gameBackends   map[string]*backend.BackendPool
-	chatBackends   map[string]*backend.BackendPool
 	sessionManager SessionManager
 	mqProducer     mq.Producer
 }
 
 func NewRouter() *Router {
-	return &Router{
-		gameBackends: make(map[string]*backend.BackendPool),
-		chatBackends: make(map[string]*backend.BackendPool),
-	}
+	return &Router{}
 }
 
-func (r *Router) SetBackends(gameBackends map[string]*backend.BackendPool, chatBackends map[string]*backend.BackendPool) {
-	r.gameBackends = gameBackends
-	r.chatBackends = chatBackends
-}
 
 func (r *Router) SetSessionManager(sm SessionManager) {
 	r.sessionManager = sm
@@ -85,30 +75,15 @@ func (r *Router) routeChatPacket(s *session.Session, pkt *protocol.Packet) error
 		s.UserID = req.Base.UserId
 	}
 
-	// 切换到 MQ 模式
-	if r.mqProducer != nil {
-		// 在 Payload 中不需要再包装了，因为 ChatRequest 已经包含了 UserID 等信息
-		// 但为了后端处理方便，我们应该要传递 metadata 吗？
-		// 目前 ChatRequest 就足够了，只是需要一个约定好的 Topic
-		// 约定 Topic 为: "game:request:{gameID}"
-		topic := fmt.Sprintf("game:request:%s", gameID)
 
-		logger.Debug(logger.TagMQ, "Publishing request to MQ | Topic: %s", topic)
-		return r.mqProducer.Publish(topic, pkt.Payload)
+	// 通过 MQ 发布请求
+	if r.mqProducer == nil {
+		return fmt.Errorf("MQ producer not initialized")
 	}
 
-	// 旧的 WebSocket 转发逻辑 (如果 MQ 未设置)
-	pool, ok := r.chatBackends[gameID]
-	if !ok {
-		return fmt.Errorf("no chat backend for game: %s", gameID)
-	}
-
-	return r.forwardToBackend(pool, s, pkt.Payload)
-}
-
-func (r *Router) forwardToBackend(pool *backend.BackendPool, s *session.Session, payload []byte) error {
-	// ... (原有的 WebSocket 实现，保留作为后备)
-	return nil
+	topic := fmt.Sprintf("game:request:%s", gameID)
+	logger.Debug(logger.TagMQ, "Publishing request to MQ | Topic: %s", topic)
+	return r.mqProducer.Publish(topic, pkt.Payload)
 }
 
 func (r *Router) HandleBackendMessage(data []byte) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"game-gateway/internal/logger"
+	"game-gateway/internal/metrics"
 	"game-gateway/internal/router"
 	"game-gateway/internal/session"
 	"game-gateway/pkg/protocol"
@@ -37,6 +38,9 @@ func NewServer(addr string, r *router.Router, s *session.Manager) *Server {
 }
 
 func (s *Server) Start() error {
+	// 启动性能指标定期报告（每30秒）
+	metrics.GlobalMetrics.StartPeriodicReport(30 * time.Second)
+
 	http.HandleFunc("/ws", s.handleConnection)
 	logger.Info(logger.TagSession, "Gateway listening on %s", s.addr)
 	return http.ListenAndServe(s.addr, nil)
@@ -61,9 +65,10 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 		AuthToken: "",
 	}
 	s.sessions.Add(sess)
+	metrics.GlobalMetrics.IncrementConnections()
 
 	// 在 session 中存储协议连接（扩展 Session 结构体）
-	logger.Debug(logger.TagSession, "New connection: Session %s", sess.ID)
+	log.Printf("[INFO][SESSION] [CONN] New connection | Session: %s | RemoteAddr: %s", sess.ID, r.RemoteAddr)
 
 	// Start loops
 	go s.writePump(sess)
@@ -73,7 +78,11 @@ func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
 // readPump 使用二进制协议读取消息
 func (s *Server) readPump(sess *session.Session, wsConn *protocol.WSConn) {
 	defer func() {
-		logger.Debug(logger.TagSession, "ReadPump ended for Session %s", sess.ID)
+		if r := recover(); r != nil {
+			log.Printf("[ERROR][SESSION] [PANIC] ReadPump panic | Session: %s | UserID: %d | Panic: %v", sess.ID, sess.UserID, r)
+		}
+		metrics.GlobalMetrics.DecrementConnections()
+		log.Printf("[INFO][SESSION] [DISCONN] Session closed | Session: %s | UserID: %d", sess.ID, sess.UserID)
 		s.sessions.Remove(sess.ID)
 		sess.Conn.Close()
 	}()
@@ -90,11 +99,14 @@ func (s *Server) readPump(sess *session.Session, wsConn *protocol.WSConn) {
 		pkt, err := wsConn.ReadPacket()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.Debug(logger.TagSession, "Read error for Session %s: %v", sess.ID, err)
+				log.Printf("[WARN][SESSION] [READ-ERR] Unexpected close | Session: %s | UserID: %d | Error: %v", sess.ID, sess.UserID, err)
+			} else {
+				log.Printf("[DEBUG][SESSION] [READ-CLOSE] Normal close | Session: %s | UserID: %d", sess.ID, sess.UserID)
 			}
 			break
 		}
 
+		metrics.GlobalMetrics.IncrementMessagesReceived()
 		log.Printf("ReadPump: Session %s received packet: Route=%d, Seq=%d, PayloadLen=%d",
 			sess.ID, pkt.Route, pkt.Sequence, len(pkt.Payload))
 
@@ -104,6 +116,9 @@ func (s *Server) readPump(sess *session.Session, wsConn *protocol.WSConn) {
 		// 路由消息 - 只传递 Payload (纯 Protobuf)
 		if err := s.router.RoutePacket(sess, pkt); err != nil {
 			logger.Warn(logger.TagRouter, "Routing error for Session %s: %v", sess.ID, err)
+			metrics.GlobalMetrics.IncrementRoutingErrors()
+		} else {
+			metrics.GlobalMetrics.IncrementMessagesRouted()
 		}
 	}
 }
@@ -120,6 +135,12 @@ func (s *Server) writePump(sess *session.Session) {
 	for {
 		select {
 		case message, ok := <-sess.Send:
+			// 检查队列长度
+			queueLen := len(sess.Send)
+			if queueLen > 512 {
+				log.Printf("[WARN][SESSION] [QUEUE-WARN] Send queue high | Session: %s | UserID: %d | QueueLen: %d/1024", sess.ID, sess.UserID, queueLen)
+			}
+
 			sess.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
 				sess.Conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -134,6 +155,7 @@ func (s *Server) writePump(sess *session.Session) {
 				logger.Error(logger.TagSession, "Write error for Session %s: %v", sess.ID, err)
 				return
 			}
+			metrics.GlobalMetrics.IncrementMessagesSent()
 
 			logger.Debug(logger.TagProtocol, "Successfully sent to Session %s", sess.ID)
 

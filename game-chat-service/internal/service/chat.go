@@ -18,12 +18,32 @@ type ChatService struct {
 	hub      *hub.Hub
 	db       *repository.Database
 	producer mq.Producer // Changed from GatewaySender
+	saveChan chan *chat.ChatRequest
 }
 
 func NewChatService(h *hub.Hub, db *repository.Database) *ChatService {
-	return &ChatService{
-		hub: h,
-		db:  db,
+	s := &ChatService{
+		hub:      h,
+		db:       db,
+		saveChan: make(chan *chat.ChatRequest, 20000), // Large buffer to absorb bursts
+	}
+
+	// Start DB workers
+	// 50 workers to handle DB writes concurrently
+	for i := 0; i < 50; i++ {
+		go s.dbWorker()
+	}
+
+	return s
+}
+
+// dbWorker consumes requests from channel and persists them
+func (s *ChatService) dbWorker() {
+	for req := range s.saveChan {
+		_, err := s.db.SaveMessage(context.Background(), req)
+		if err != nil {
+			logger.Error(logger.TagDB, "Async save failed | User: %d, Error: %v", req.Base.UserId, err)
+		}
 	}
 }
 
@@ -40,14 +60,16 @@ func (s *ChatService) HandleRequest(ctx context.Context, req *chat.ChatRequest) 
 	logger.Debug(logger.TagService, "Message received | From: %d, To: %d, Content: %s, MsgID: %s",
 		req.Base.UserId, req.ReceiverId, req.Content[:min(50, len(req.Content))], messageID)
 
-	// 1. Persistence
-	dbStart := time.Now()
-	msgID, err := s.db.SaveMessage(ctx, req)
-	if err != nil {
-		logger.Error(logger.TagDB, "Failed to save message | MsgID: %s, Error: %v", messageID, err)
-		return nil, fmt.Errorf("persistence failed: %w", err)
+	// 1. Persistence (Async)
+	// Push to channel, non-blocking if buffer has space
+	var msgID int64
+	select {
+	case s.saveChan <- req:
+		msgID = time.Now().UnixNano() // Temporary int64 ID
+	default:
+		logger.Error(logger.TagService, "Save buffer full | Dropping message from %d", req.Base.UserId)
+		return nil, fmt.Errorf("server overload (db buffer full)")
 	}
-	logger.Debug(logger.TagDB, "Message saved | MsgID: %s, DBTime: %v", messageID, time.Since(dbStart))
 
 	// 2. Routing logic (via Hub)
 	s.hub.HandleMessage(ctx, req)

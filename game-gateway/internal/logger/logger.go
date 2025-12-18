@@ -51,6 +51,7 @@ func Init() {
 		}
 
 		// 默认启用的标签
+		defaultLogger.EnableTag(TagSession)
 		defaultLogger.EnableTag(TagRouter)
 		defaultLogger.EnableTag(TagMQ)
 		defaultLogger.EnableTag(TagBackend)

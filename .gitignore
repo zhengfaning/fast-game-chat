@@ -61,3 +61,5 @@ temp/
 # 操作系统
 .DS_Store
 Thumbs.db
+__pycache__
+scripts/stress_go/stress_test

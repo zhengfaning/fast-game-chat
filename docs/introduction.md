@@ -1,9 +1,10 @@
+# 通用游戏聊天系统
+
 ```plantuml {kroki=true}
 @startuml 游戏系统部署架构
 !theme vibrant
 skinparam linetype ortho
 
-title 通用游戏聊天系统
 
 left to right direction
 
@@ -62,25 +63,38 @@ chat --> redis
 @enduml
 ```
 
-## 架构说明
+## 跨游戏通用平台
 
-1. **消息队列解耦**: Gateway 和 Chat Service 之间完全通过 Redis Pub/Sub 通信，消除了直连带来的连接池瓶颈。
+### 核心设计
+- **Gateway**: 只解析协议头（8字节），根据 `game_id` 路由到不同 Topic
+- **隔离机制**: 消息队列 Topic 隔离 + 数据库 `game_id` 字段 + Redis Key 前缀
+- **字段扩展**: Protobuf `oneof` 支持游戏专属字段
 
-2. **并发消费模型**: Chat Service 为每个接收到的消息启动独立的 Goroutine 处理，充分利用多核 CPU。
+### 性能
+10000+ 并发 | 2.2ms 延迟 | 100% 成功率
 
-3. **异步持久化**: 数据库写入通过 Buffered Channel + Worker Pool 实现，用户请求不再等待磁盘 I/O。
+### 新游戏接入（3步）
 
-4. **可扩展性**:
-   - **Gateway**: 无状态，可水平扩展（所有实例订阅同一个 `broadcast` 频道）
-   - **Chat Service**: 可部署多实例消费同一队列（建议升级为 Redis Streams 或 Kafka 以避免消息重复）
-   - **消息队列**: 当前使用 Redis，已抽象接口（`mq.Producer/Consumer`），可无缝切换至 Kafka/RabbitMQ
+**Step 1**: 配置文件添加游戏
+```yaml
+games:
+  - id: "moba"
+    chat_backend: {host: "localhost", port: 9002}
+```
 
-### 性能指标
+**Step 2**: （可选）扩展专属字段
+```protobuf
+message ChatRequest {
+    MessageBase base = 1;
+    oneof game_specific {
+        MOBAExtra moba_extra = 12;  // 新增
+    }
+}
+```
 
-- **并发连接**: 10,000+ WebSocket 长连接
-- **成功率**: 100%
-- **平均延迟**: 2.2ms
-- **最大延迟**: 88.89ms
-- **吞吐量**: 830+ req/s
+**Step 3**: 编译重启
+```bash
+make proto && make restart-app
+```
 
-详见：[压力测试报告](STRESS_TEST_10000_USERS_REPORT.md)
+

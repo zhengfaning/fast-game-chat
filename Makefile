@@ -137,10 +137,15 @@ test-redis: ## Docker: 测试 Redis 连接
 stats: ## Docker: 显示资源使用
 	docker stats --no-stream game-postgres game-redis
 
-test-stress: ## Test: 运行压力测试 (使用 USERS=N 指定用户数，默认1000)
-	@echo "🧪 开始压力测试 ($(or $(USERS),1000) 并发用户)..."
+test-stress: scripts/stress_go/stress_test ## Test: 运行压力测试 (默认: USERS=3000, MSGS=2)
+	@echo "🧪 开始压力测试 (并发: $(or $(USERS),3000), 消息: $(or $(MSGS),2))..."
 	@echo "⚠️  请确保服务已启动 (make run)"
-	@cd scripts && go run stress_cluster.go -users=$(or $(USERS),1000)
+	@./scripts/stress_go/stress_test -c $(or $(USERS),3000) -n $(or $(MSGS),2)
+
+# 按需编译 stress_test (只在源码修改时编译)
+scripts/stress_go/stress_test: $(shell find scripts/stress_go -name '*.go')
+	@echo "🔨 编译压力测试工具..."
+	@cd scripts/stress_go && go build -o stress_test main.go
 
 clean: ## App: 清理编译与发布目录
 	rm -rf bin $(DIST_DIR) $(TMP_DIR)

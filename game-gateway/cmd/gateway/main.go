@@ -22,9 +22,9 @@ func main() {
 	logger.SetLevel(logger.DEBUG)
 	logger.EnableTag(logger.TagRouter)
 	logger.EnableTag(logger.TagMQ)
+	logger.EnableTag(logger.TagProtocol)
 	// Disable noisy logs
 	logger.DisableTag(logger.TagSession)
-	logger.DisableTag(logger.TagProtocol)
 
 	// 1. Load config
 	cfg, err := config.Load()
@@ -78,6 +78,9 @@ func main() {
 
 	// Create MQ instance
 	mqInstance := mq.NewRedisMQ(rdb)
+
+	// Inject MQ into Router to enable async request processing
+	r.SetMQ(mqInstance)
 
 	// Subscribe to broadcasts
 	msgChan, err := mqInstance.Subscribe("broadcast")

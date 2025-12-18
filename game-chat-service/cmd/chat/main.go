@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
+
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"game-chat-service/internal/config"
 	"game-chat-service/internal/hub"
@@ -14,8 +18,6 @@ import (
 	"game-chat-service/internal/transport"
 
 	"game-protocols/chat"
-
-	"google.golang.org/grpc"
 )
 
 type grpcServer struct {
@@ -60,6 +62,49 @@ func main() {
 	// Initialize ChatService
 	svc := service.NewChatService(h, db)
 	svc.SetProducer(redisMQ)
+
+	// 🆕 6. Start Redis Consumer (for Gateway incoming requests)
+	requestChan, err := redisMQ.Subscribe("game:request:mmo") // Topic convention
+	if err != nil {
+		log.Fatalf("Failed to subscribe to requests: %v", err)
+	}
+
+	go func() {
+		log.Println("🎧 Started listening for Redis requests on game:request:mmo")
+		for msg := range requestChan {
+			// 并发处理每个请求
+			go func(m *mq.Message) {
+				var req chat.ChatRequest
+				if err := proto.Unmarshal(m.Payload, &req); err != nil {
+					log.Printf("Failed to unmarshal request: %v", err)
+					return
+				}
+
+				// 处理请求
+				resp, err := svc.HandleRequest(context.Background(), &req)
+				if err != nil {
+					log.Printf("HandleRequest error: %v", err)
+					// TODO: Send error response?
+					return
+				}
+
+				// 发送 ACK 响应 (发给发送者)
+				if resp != nil {
+					// 路由信息
+					resp.TargetUserId = req.Base.UserId
+
+					respBytes, err := proto.Marshal(resp)
+					if err == nil {
+						// 这里的 "broadcast" 其实是 "gateway_downstream" 的意思
+						// 所有的 Gateway 都会收到并路由
+						if err := redisMQ.Publish("broadcast", respBytes); err != nil {
+							log.Printf("Failed to publish ACK: %v", err)
+						}
+					}
+				}
+			}(msg)
+		}
+	}()
 
 	// 4. Start WebSocket Server (for Gateway incoming requests)
 	wsSrv := transport.NewWSServer(cfg.Server.Port, svc)

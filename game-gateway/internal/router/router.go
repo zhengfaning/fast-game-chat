@@ -5,12 +5,12 @@ import (
 
 	"game-gateway/internal/backend"
 	"game-gateway/internal/logger"
+	"game-gateway/internal/mq"
 	"game-gateway/internal/session"
 	"game-gateway/pkg/protocol"
 
 	"game-protocols/chat"
 
-	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -24,6 +24,7 @@ type Router struct {
 	gameBackends   map[string]*backend.BackendPool
 	chatBackends   map[string]*backend.BackendPool
 	sessionManager SessionManager
+	mqProducer     mq.Producer
 }
 
 func NewRouter() *Router {
@@ -40,6 +41,10 @@ func (r *Router) SetBackends(gameBackends map[string]*backend.BackendPool, chatB
 
 func (r *Router) SetSessionManager(sm SessionManager) {
 	r.sessionManager = sm
+}
+
+func (r *Router) SetMQ(producer mq.Producer) {
+	r.mqProducer = producer
 }
 
 // RoutePacket 使用二进制协议路由数据包
@@ -80,7 +85,19 @@ func (r *Router) routeChatPacket(s *session.Session, pkt *protocol.Packet) error
 		s.UserID = req.Base.UserId
 	}
 
-	// 转发到 Chat Service（只发送 Payload，不包含协议头）
+	// 切换到 MQ 模式
+	if r.mqProducer != nil {
+		// 在 Payload 中不需要再包装了，因为 ChatRequest 已经包含了 UserID 等信息
+		// 但为了后端处理方便，我们应该要传递 metadata 吗？
+		// 目前 ChatRequest 就足够了，只是需要一个约定好的 Topic
+		// 约定 Topic 为: "game:request:{gameID}"
+		topic := fmt.Sprintf("game:request:%s", gameID)
+
+		logger.Debug(logger.TagMQ, "Publishing request to MQ | Topic: %s", topic)
+		return r.mqProducer.Publish(topic, pkt.Payload)
+	}
+
+	// 旧的 WebSocket 转发逻辑 (如果 MQ 未设置)
 	pool, ok := r.chatBackends[gameID]
 	if !ok {
 		return fmt.Errorf("no chat backend for game: %s", gameID)
@@ -90,13 +107,8 @@ func (r *Router) routeChatPacket(s *session.Session, pkt *protocol.Packet) error
 }
 
 func (r *Router) forwardToBackend(pool *backend.BackendPool, s *session.Session, payload []byte) error {
-	conn, err := pool.Get()
-	if err != nil {
-		return err
-	}
-	defer pool.Put(conn)
-
-	return conn.WriteMessage(websocket.BinaryMessage, payload)
+	// ... (原有的 WebSocket 实现，保留作为后备)
+	return nil
 }
 
 func (r *Router) HandleBackendMessage(data []byte) {

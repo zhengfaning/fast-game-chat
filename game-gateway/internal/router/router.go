@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"game-gateway/internal/logger"
-	"game-gateway/internal/mq"
 	"game-gateway/internal/session"
 	"game-gateway/pkg/protocol"
+	"game-pkg/mq"
 
 	"game-protocols/chat"
 
@@ -27,7 +27,6 @@ type Router struct {
 func NewRouter() *Router {
 	return &Router{}
 }
-
 
 func (r *Router) SetSessionManager(sm SessionManager) {
 	r.sessionManager = sm
@@ -74,7 +73,6 @@ func (r *Router) routeChatPacket(s *session.Session, pkt *protocol.Packet) error
 		r.sessionManager.Bind(req.Base.UserId, s.ID)
 		s.UserID = req.Base.UserId
 	}
-
 
 	// 通过 MQ 发布请求
 	if r.mqProducer == nil {

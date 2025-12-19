@@ -22,6 +22,20 @@ type Config struct {
 		Addr     string `mapstructure:"addr"`
 		Password string `mapstructure:"password"`
 	} `mapstructure:"redis"`
+
+	MQ struct {
+		Type     string `mapstructure:"type"`
+		RobustMQ struct {
+			Broker   string `mapstructure:"broker"`
+			ClientID string `mapstructure:"client_id"`
+			Username string `mapstructure:"username"`
+			Password string `mapstructure:"password"`
+		} `mapstructure:"robustmq"`
+		Redis struct {
+			Addr     string `mapstructure:"addr"`
+			Password string `mapstructure:"password"`
+		} `mapstructure:"redis"`
+	} `mapstructure:"mq"`
 }
 
 func Load() (*Config, error) {

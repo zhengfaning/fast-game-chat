@@ -137,8 +137,11 @@ test-db: ## Docker: 测试数据库连接
 test-redis: ## Docker: 测试 Redis 连接
 	@docker exec game-redis redis-cli ping > /dev/null 2>&1 && echo "✅ Redis OK" || echo "❌ Redis Fail"
 
+test-mq: ## Docker: 测试 RobustMQ 连接
+	@docker exec robustmq robustmq-cli ping > /dev/null 2>&1 && echo "✅ RobustMQ OK" || echo "❌ RobustMQ Fail"
+
 stats: ## Docker: 显示资源使用
-	docker stats --no-stream game-postgres game-redis
+	docker stats --no-stream game-postgres game-redis robustmq
 
 test-stress: scripts/stress_go/stress_test ## Test: 运行压力测试 (默认: USERS=3000, MSGS=2)
 	@echo "🧪 开始压力测试 (并发: $(or $(USERS),3000), 消息: $(or $(MSGS),2))..."

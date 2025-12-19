@@ -15,10 +15,10 @@ import (
 	"game-chat-service/internal/config"
 	"game-chat-service/internal/hub"
 	"game-chat-service/internal/logger"
-	"game-chat-service/internal/mq"
 	"game-chat-service/internal/repository"
 	"game-chat-service/internal/service"
 	"game-chat-service/internal/transport"
+	"game-pkg/mq"
 
 	"game-protocols/chat"
 )
@@ -70,8 +70,27 @@ func main() {
 	// 3. Init Core
 	h := hub.NewHub(rdb)
 
-	// Initialize RedisMQ
-	redisMQ := mq.NewRedisMQ(rdb.Client)
+	// Initialize MQ
+	var redisMQ interface {
+		mq.Producer
+		mq.Consumer
+	}
+
+	switch cfg.MQ.Type {
+	case "robustmq":
+		log.Println("🚀 Using RobustMQ (MQTT)")
+		redisMQ = mq.NewRobustMQ(&mq.RobustMQConfig{
+			Broker:   cfg.MQ.RobustMQ.Broker,
+			ClientID: cfg.MQ.RobustMQ.ClientID,
+			Username: cfg.MQ.RobustMQ.Username,
+			Password: cfg.MQ.RobustMQ.Password,
+		})
+	case "redis":
+		fallthrough
+	default:
+		log.Println("🚀 Using Redis MQ")
+		redisMQ = mq.NewRedisMQ(rdb.Client)
+	}
 
 	// Initialize ChatService
 	svc := service.NewChatService(h, db)

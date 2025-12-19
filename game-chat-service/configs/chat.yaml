@@ -9,3 +9,14 @@ database:
 redis:
   addr: "localhost:6379"
   password: ""
+
+mq:
+  type: "robustmq" # Using RobustMQ for better performance and reliability
+  robustmq:
+    broker: "tcp://localhost:1883"
+    client_id: "chat-service-1"
+    username: ""
+    password: ""
+  redis:
+    addr: "localhost:6379"
+    password: ""

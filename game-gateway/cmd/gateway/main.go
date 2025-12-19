@@ -8,10 +8,10 @@ import (
 
 	"game-gateway/internal/config"
 	"game-gateway/internal/logger"
-	"game-gateway/internal/mq"
 	"game-gateway/internal/router"
 	"game-gateway/internal/server"
 	"game-gateway/internal/session"
+	"game-pkg/mq"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -53,15 +53,31 @@ func main() {
 	sm := session.NewManager()
 	r.SetSessionManager(sm)
 
-	// 5. Initialize MQ Consumer (Redis)
-	// We need to create a redis client here as config has redis info
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-	})
+	// 5. Initialize MQ
+	var mqInstance interface {
+		mq.Producer
+		mq.Consumer
+	}
 
-	// Create MQ instance
-	mqInstance := mq.NewRedisMQ(rdb)
+	switch cfg.MQ.Type {
+	case "robustmq":
+		log.Println("🚀 Using RobustMQ (MQTT)")
+		mqInstance = mq.NewRobustMQ(&mq.RobustMQConfig{
+			Broker:   cfg.MQ.RobustMQ.Broker,
+			ClientID: cfg.MQ.RobustMQ.ClientID,
+			Username: cfg.MQ.RobustMQ.Username,
+			Password: cfg.MQ.RobustMQ.Password,
+		})
+	case "redis":
+		fallthrough
+	default:
+		log.Println("🚀 Using Redis MQ")
+		rdb := redis.NewClient(&redis.Options{
+			Addr:     cfg.MQ.Redis.Addr,
+			Password: cfg.MQ.Redis.Password,
+		})
+		mqInstance = mq.NewRedisMQ(rdb)
+	}
 
 	// Inject MQ into Router to enable async request processing
 	r.SetMQ(mqInstance)

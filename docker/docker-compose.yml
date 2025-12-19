@@ -73,6 +73,20 @@ services:
     depends_on:
       - postgres
 
+  # RobustMQ 消息队列
+  robustmq:
+    build:
+      context: .
+      dockerfile: Dockerfile.robustmq
+    container_name: game-robustmq
+    restart: unless-stopped
+    ports:
+      - "1883:1883" # MQTT Protocol
+      - "9092:9092" # Kafka Protocol
+      - "8080:8080" # HTTP/Admin
+    networks:
+      - game-network
+
 # 数据持久化卷
 volumes:
   postgres_data:

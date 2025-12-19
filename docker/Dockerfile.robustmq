@@ -1,0 +1,65 @@
+# Multi-stage build for RobustMQ
+# Based on: https://github.com/robustmq/robustmq
+
+# Stage 1: Build stage
+FROM rust:1.75-slim as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    build-essential \
+    clang \
+    lld \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Clone RobustMQ repository
+RUN git clone https://github.com/robustmq/robustmq.git .
+
+# Build the cmd package which contains broker-server and cli tools
+RUN cargo build --release --package cmd
+
+# Stage 2: Runtime stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create robustmq user
+RUN useradd -m -u 1000 -s /bin/bash robustmq
+
+# Set working directory
+WORKDIR /opt/robustmq
+
+# Create necessary directories
+RUN mkdir -p bin config data logs
+
+# Copy broker-server binary from builder
+COPY --from=builder /build/target/release/broker-server ./bin/broker-server
+
+# Copy configuration files
+COPY --from=builder /build/config ./config
+
+# Set ownership
+RUN chown -R robustmq:robustmq /opt/robustmq
+
+# Switch to robustmq user
+USER robustmq
+
+# Expose ports
+# MQTT: 1883, 8883
+# Kafka: 9092
+# HTTP/Admin: 8080, 9090
+EXPOSE 1883 8883 9092 8080 9090
+
+# Default command - start broker-server
+CMD ["./bin/broker-server"]

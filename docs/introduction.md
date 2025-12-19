@@ -24,7 +24,7 @@ skinparam artifact {
 }
 
 ' 客户端节点
-artifact "游戏客户端\n(10000+)" as client_app <<client>>
+artifact "游戏客户端\n(1000000+)" as client_app <<client>>
 
 ' 网关层
 artifact "网关服\n(Gateway)" as gateway <<gateway>>
@@ -71,7 +71,7 @@ chat --> redis
 - **字段扩展**: Protobuf `oneof` 支持游戏专属字段
 
 ### 性能
-10000+ 并发 | 2.2ms 延迟 | 100% 成功率
+100,000+ 并发 | 2.2ms 延迟 | 100% 成功率
 
 ### 新游戏接入（3步）
 

@@ -93,19 +93,22 @@ func runUserStressTest(userID int32, request *model.Request, stats *statistics.S
 	}
 	defer chatClient.Close()
 
-	// 执行多次请求
-	for i := uint64(0); i < request.TotalNumber; i++ {
-		result := chatClient.RunTest(1) // 每次测试发送1条消息
-		stats.AddResult(result)
+	// 1. Bind (一次性)
+	if err := chatClient.Bind(); err != nil {
+		stats.AddResult(&model.RequestResult{
+			UserID:  userID,
+			Success: false,
+			Error:   fmt.Errorf("bind failed: %w", err),
+		})
+		return
+	}
 
-		if !result.Success && request.Debug {
-			log.Printf("[User %d] Request %d failed: %v", userID, i+1, result.Error)
-		}
+	// 2. 执行测试 (包含所有消息)
+	result := chatClient.RunTest(int(request.TotalNumber), request.StartUserID, request.Concurrency)
+	stats.AddResult(result)
 
-		// 请求间隔
-		if i < request.TotalNumber-1 {
-			time.Sleep(100 * time.Millisecond)
-		}
+	if !result.Success && request.Debug {
+		log.Printf("[User %d] Test failed: %v", userID, result.Error)
 	}
 
 	if request.Debug {

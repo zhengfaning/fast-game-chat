@@ -22,7 +22,7 @@
 ## 压测结果对比
 
 ### 测试环境
-- **并发**: 10000 用户
+- **并发**: 100000 用户
 - **消息**: 每用户 2 条
 - **架构**: Lock-Free (concurrent-map)
 
@@ -39,7 +39,7 @@
 
 ### 1. 瞬时冲击的瓶颈
 
-**0ms 间隔**（10000 个连接在 ~10ms 内全部发起）：
+**0ms 间隔**（100000 个连接在 ~10ms 内全部发起）：
 - ❌ **成功率暴跌至 3.35%**
 - ❌ 平均延迟飙升至 **4.17 秒**
 - ❌ 大量超时错误
@@ -65,7 +65,7 @@ accept() 阻塞
 ### 3. 2ms 间隔的合理性
 
 **为什么 2ms 是最优选择**:
-- ✅ 10000 连接在 **20 秒**内完成建立（可接受）
+- ✅ 100000 连接在 **20 秒**内完成建立（可接受）
 - ✅ 避免 TCP 队列溢出
 - ✅ 系统有时间处理每个连接
 - ✅ 100% 成功率
@@ -91,11 +91,11 @@ sudo sysctl -p
 #### 2. 增大文件描述符限制
 ```bash
 # 临时
-ulimit -n 100000
+ulimit -n 1000000
 
 # 永久 (/etc/security/limits.conf)
-* soft nofile 100000
-* hard nofile 100000
+* soft nofile 1000000
+* hard nofile 1000000
 ```
 
 #### 3. 优化 TIME_WAIT 回收
@@ -106,7 +106,7 @@ sudo sysctl -w net.ipv4.tcp_fin_timeout=30
 
 #### 4. 增大本地端口范围
 ```bash
-sudo sysctl -w net.ipv4.ip_local_port_range="10000 65535"
+sudo sysctl -w net.ipv4.ip_local_port_range="100000 65535"
 ```
 
 ---
@@ -116,19 +116,19 @@ sudo sysctl -w net.ipv4.ip_local_port_range="10000 65535"
 ### 场景 1: 日常压测
 ```bash
 # 使用默认 2ms 间隔
-make test-stress USERS=10000 MSGS=2
+make test-stress USERS=100000 MSGS=2
 ```
 
 ### 场景 2: 验证瞬时冲击能力
 ```bash
 # 0ms 间隔（需先优化操作系统）
-./scripts/stress_go/stress_test -c 10000 -n 2 -i 0
+./scripts/stress_go/stress_test -c 100000 -n 2 -i 0
 ```
 
 ### 场景 3: 模拟真实流量
 ```bash
 # 5ms 间隔（更接近真实用户行为）
-./scripts/stress_go/stress_test -c 10000 -n 5 -i 5
+./scripts/stress_go/stress_test -c 100000 -n 5 -i 5
 ```
 
 ### 场景 4: 极限测试
@@ -146,11 +146,11 @@ make test-stress USERS=10000 MSGS=2
 ```makefile
 # 瞬时冲击测试（需OS优化）
 test-burst:
-	@./scripts/stress_go/stress_test -c $(or $(USERS),10000) -n 2 -i 0
+	@./scripts/stress_go/stress_test -c $(or $(USERS),100000) -n 2 -i 0
 
 # 温和压测
 test-mild:
-	@./scripts/stress_go/stress_test -c $(or $(USERS),10000) -n 2 -i 5
+	@./scripts/stress_go/stress_test -c $(or $(USERS),100000) -n 2 -i 5
 
 # 极限压测
 test-extreme:

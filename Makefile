@@ -35,6 +35,9 @@ help: ## 显示帮助信息
 	@echo ""
 	@echo "构建与运行命令:"
 	@grep -E '^[a-zA-Z_-]+:.*?## App: .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## App: "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "测试命令:"
+	@grep -E '^[a-zA-Z_-]+:.*?## Test: .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## Test: "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # --- 构建命令 ---
 

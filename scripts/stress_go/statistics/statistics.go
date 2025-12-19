@@ -65,13 +65,18 @@ func (s *Statistics) collect() {
 
 	for result := range s.resultChan {
 		if result.Success {
-			atomic.AddUint64(&s.successCount, 1)
+			atomic.AddUint64(&s.successCount, uint64(result.MessagesSent))
 			atomic.AddUint64(&s.totalSent, uint64(result.MessagesSent))
 			atomic.AddUint64(&s.totalRecv, uint64(result.MessagesRecv))
 
-			// 更新延迟统计
+			// 更新延迟统计 (这里是会话总延迟)
 			latency := uint64(result.Duration.Nanoseconds())
 			atomic.AddUint64(&s.totalLatency, latency)
+
+			// 更新最小/最大延迟统计
+			// 注意：这里的延迟统计是平均每条消息的延迟，还是整个会话？
+			// 为了保持一致性，我们统计整个会话的延迟分布
+			// 或者更好的办法是在 PrintReport 中处理
 
 			// 更新最小延迟
 			for {
@@ -95,7 +100,17 @@ func (s *Statistics) collect() {
 				}
 			}
 		} else {
-			atomic.AddUint64(&s.failureCount, 1)
+			// 如果失败了，计算失败的请求数
+			// 假设预期的每用户请求数是 s.totalReqs
+			failed := s.totalReqs - uint64(result.MessagesSent)
+			if failed == 0 && !result.Success {
+				failed = s.totalReqs // 整个流程失败 (可能是 Bind 失败)
+			}
+			atomic.AddUint64(&s.failureCount, failed)
+			// 同时也要累加已经发送和接收的消息
+			atomic.AddUint64(&s.totalSent, uint64(result.MessagesSent))
+			atomic.AddUint64(&s.totalRecv, uint64(result.MessagesRecv))
+
 			if result.Error != nil {
 				s.errorMutex.Lock()
 				s.errors = append(s.errors, result.Error)

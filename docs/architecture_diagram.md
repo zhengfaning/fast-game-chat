@@ -23,7 +23,7 @@ skinparam artifact {
 }
 
 ' 客户端节点
-artifact "游戏客户端\n(10000+)" as client_app <<client>>
+artifact "游戏客户端\n(100,000+)" as client_app <<client>>
 
 ' 网关层
 artifact "网关服\n(Gateway)" as gateway <<gateway>>
@@ -77,10 +77,10 @@ chat --> redis
 
 ### 性能指标
 
-- **并发连接**: 10,000+ WebSocket 长连接
+- **并发连接**: 100,000+ WebSocket 长连接
 - **成功率**: 100%
 - **平均延迟**: 2.2ms
 - **最大延迟**: 88.89ms
 - **吞吐量**: 830+ req/s
 
-详见：[压力测试报告](STRESS_TEST_10000_USERS_REPORT.md)
+详见：[压力测试报告](STRESS_TEST_100000_USERS_REPORT.md)

@@ -11,6 +11,7 @@ type Config struct {
 	Server struct {
 		Host string `mapstructure:"host"`
 		Port int    `mapstructure:"port"`
+		Env  string `mapstructure:"env"`
 	} `mapstructure:"server"`
 
 	Games []GameConfig `mapstructure:"games"`

@@ -1,6 +1,7 @@
 server:
   port: 9002
   grpc_port: 50051
+  env: "dev" # set to 'prod' to disable pprof
 
 database:
   dsn: "postgres://user:password@localhost:5432/game_chat?sslmode=disable"

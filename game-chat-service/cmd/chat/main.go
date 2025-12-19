@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof" // Import pprof for diagnostic info
 
+	// Added if needed later, but focusing on pprof now
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
@@ -40,6 +43,17 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Config error: %v", err)
+	}
+
+	// 🆕 Enable pprof in non-prod environment
+	if cfg.Server.Env != "prod" {
+		go func() {
+			pprofPort := 6061 // Use different port for chat service pprof
+			log.Printf("📊 Starting pprof server on :%d", pprofPort)
+			if err := http.ListenAndServe(fmt.Sprintf(":%d", pprofPort), nil); err != nil {
+				log.Printf("⚠️ pprof server failed: %v", err)
+			}
+		}()
 	}
 
 	// 2. Init DB & Redis

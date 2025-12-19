@@ -9,8 +9,9 @@ import (
 
 type Config struct {
 	Server struct {
-		Port     int `mapstructure:"port"`
-		GrpcPort int `mapstructure:"grpc_port"`
+		Port     int    `mapstructure:"port"`
+		GrpcPort int    `mapstructure:"grpc_port"`
+		Env      string `mapstructure:"env"`
 	} `mapstructure:"server"`
 
 	Database struct {

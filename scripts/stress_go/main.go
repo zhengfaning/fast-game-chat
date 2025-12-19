@@ -21,11 +21,12 @@ type GatewayConfig struct {
 }
 
 var (
-	concurrency uint64 = 1    // 并发用户数
-	totalReqs   uint64 = 1    // 每个用户的请求数
-	gatewayURL  string        // Gateway URL
-	startUserID int64  = 2000 // 起始用户ID
-	debugMode   bool   = false
+	concurrency  uint64 = 1    // 并发用户数
+	totalReqs    uint64 = 1    // 每个用户的请求数
+	gatewayURL   string        // Gateway URL
+	startUserID  int64  = 2000 // 起始用户ID
+	debugMode    bool   = false
+	connInterval int    = 2 // 连接间隔（毫秒）
 )
 
 func init() {
@@ -34,6 +35,7 @@ func init() {
 	flag.StringVar(&gatewayURL, "u", "", "Gateway WebSocket URL (留空则自动从配置读取)")
 	flag.Int64Var((*int64)(&startUserID), "s", 2000, "起始用户ID")
 	flag.BoolVar(&debugMode, "d", false, "调试模式")
+	flag.IntVar(&connInterval, "i", 2, "连接间隔（毫秒），0=无间隔（最猛）")
 }
 
 // loadGatewayURL 从配置文件读取 Gateway 地址
@@ -88,11 +90,12 @@ func main() {
 
 	// 创建请求配置
 	request := &model.Request{
-		Concurrency: concurrency,
-		TotalNumber: totalReqs,
-		URL:         gatewayURL,
-		StartUserID: int32(startUserID),
-		Debug:       debugMode,
+		Concurrency:        concurrency,
+		TotalNumber:        totalReqs,
+		URL:                gatewayURL,
+		StartUserID:        int32(startUserID),
+		Debug:              debugMode,
+		ConnectionInterval: connInterval,
 	}
 
 	// 启动压测
@@ -102,6 +105,12 @@ func main() {
 	log.Printf("   总请求数: %d", concurrency*totalReqs)
 	log.Printf("   Gateway: %s", gatewayURL)
 	log.Printf("   用户ID范围: %d - %d", startUserID, startUserID+int64(concurrency)-1)
+	log.Printf("   连接间隔: %dms%s", connInterval, func() string {
+		if connInterval == 0 {
+			return " (🔥 无间隔冲击模式)"
+		}
+		return ""
+	}())
 	fmt.Println()
 
 	// 执行压测

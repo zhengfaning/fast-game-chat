@@ -31,9 +31,9 @@ func Dispose(request *model.Request) {
 		userID := request.StartUserID + int32(i)
 		go runUserStressTest(userID, request, stats, &wg)
 
-		// 错开连接，避免连接风暴
-		if i < request.Concurrency-1 {
-			time.Sleep(2 * time.Millisecond)
+		// 错开连接，避免连接风暴（可配置间隔）
+		if i < request.Concurrency-1 && request.ConnectionInterval > 0 {
+			time.Sleep(time.Duration(request.ConnectionInterval) * time.Millisecond)
 		}
 	}
 
